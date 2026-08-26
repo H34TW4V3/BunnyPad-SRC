@@ -1,2 +1,9 @@
 qodana.yaml
 .venv
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Backup files
+*.bak

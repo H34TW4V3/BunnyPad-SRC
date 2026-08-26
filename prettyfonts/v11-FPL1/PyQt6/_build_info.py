@@ -1,0 +1,4 @@
+# Auto-generated at build time - DO NOT EDIT
+COMPILED_DIRTY = True
+GIT_COMMIT = "9e97d02"
+COMPILE_TIME = "2026-08-26T00:10:00.674477Z"
