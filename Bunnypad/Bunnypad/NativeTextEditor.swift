@@ -125,6 +125,7 @@ struct NativeTextEditor: NSViewRepresentable {
         if text.string != document.content.text {
             let selection = text.selectedRange()
             text.string = document.content.text
+            context.coordinator.resetLineStarts()
             text.setSelectedRange(NSRange(location: min(selection.location, text.string.utf16.count), length: 0))
         }
         if text.font?.pointSize != CGFloat(fontSize) {
@@ -148,7 +149,13 @@ struct NativeTextEditor: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: NativeTextEditor
+        private var lineStarts: [Int] = []
+
         init(_ parent: NativeTextEditor) { self.parent = parent }
+
+        func resetLineStarts() {
+            lineStarts.removeAll()
+        }
 
         func useUTF8() {
             var snapshot = parent.document.content
@@ -159,6 +166,7 @@ struct NativeTextEditor: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let text = notification.object as? NSTextView else { return }
+            updateLineStarts(for: text.string)
             var snapshot = parent.document.content
             snapshot.text = text.string
             parent.document.replace(with: snapshot, undoManager: parent.undoManager)
@@ -170,13 +178,57 @@ struct NativeTextEditor: NSViewRepresentable {
             updatePosition(text)
         }
 
+        private func updateLineStarts(for string: String) {
+            var starts = [0]
+            var idx = 0
+            for unit in string.utf16 {
+                idx += 1
+                if unit == 0x0A {
+                    starts.append(idx)
+                }
+            }
+            self.lineStarts = starts
+        }
+
+        private func lineIndex(for offset: Int) -> Int {
+            guard !lineStarts.isEmpty else { return 0 }
+            var low = 0
+            var high = lineStarts.count - 1
+            var result = 0
+            while low <= high {
+                let mid = (low + high) / 2
+                if lineStarts[mid] <= offset {
+                    result = mid
+                    low = mid + 1
+                } else {
+                    high = mid - 1
+                }
+            }
+            return result
+        }
+
         private func updatePosition(_ text: NSTextView) {
-            let value = text.string as NSString
-            let offset = min(text.selectedRange().location, value.length)
-            let prefix = value.substring(to: offset)
-            let line = prefix.reduce(1) { $1 == "\n" ? $0 + 1 : $0 }
-            let column = (prefix.split(separator: "\n", omittingEmptySubsequences: false).last?.count ?? 0) + 1
-            // AppKit can notify during a SwiftUI view update.
+            let nsString = text.string as NSString
+            let length = nsString.length
+            let offset = min(text.selectedRange().location, length)
+
+            if lineStarts.isEmpty {
+                updateLineStarts(for: text.string)
+            }
+
+            let lineIdx = lineIndex(for: offset)
+            let lineStart = lineStarts[lineIdx]
+            let line = lineIdx + 1
+
+            let linePrefixLength = min(max(0, offset - lineStart), max(0, length - lineStart))
+            let column: Int
+            if linePrefixLength > 0 {
+                let linePrefix = nsString.substring(with: NSRange(location: lineStart, length: linePrefixLength))
+                column = linePrefix.count + 1
+            } else {
+                column = 1
+            }
+
             Task { @MainActor [session = parent.session] in
                 session.line = line
                 session.column = column

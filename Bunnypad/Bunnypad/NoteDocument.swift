@@ -64,7 +64,7 @@ enum TextFileError: LocalizedError {
 
 @Observable
 final class NoteDocument: Document {
-    static let readableContentTypes: [UTType] = [.plainText, .text]
+    static let readableContentTypes: [UTType] = [.plainText]
     static let writableContentTypes: [UTType] = [.plainText]
     var content = TextSnapshot(text: "")
 
@@ -94,9 +94,68 @@ final class NoteDocument: Document {
 
     func replace(with newContent: TextSnapshot, undoManager: UndoManager?) {
         let previous = content
-        undoManager?.registerUndo(withTarget: self) { document in
-            document.replace(with: previous, undoManager: undoManager)
+        if previous.encoding != newContent.encoding ||
+            previous.hasBOM != newContent.hasBOM ||
+            previous.lineEnding != newContent.lineEnding {
+            undoManager?.registerUndo(withTarget: self) { document in
+                document.replace(with: previous, undoManager: undoManager)
+            }
+        } else if previous.text != newContent.text {
+            let (location, deletedText, insertedText) = NoteDocument.computeEdit(oldText: previous.text, newText: newContent.text)
+            undoManager?.registerUndo(withTarget: self) { document in
+                document.applyEdit(location: location, deletedText: insertedText, insertedText: deletedText, undoManager: undoManager)
+            }
         }
         content = newContent
+    }
+
+    private static func computeEdit(oldText: String, newText: String) -> (location: Int, deletedText: String, insertedText: String) {
+        var oldStart = oldText.startIndex
+        var newStart = newText.startIndex
+        let oldEnd = oldText.endIndex
+        let newEnd = newText.endIndex
+
+        while oldStart < oldEnd && newStart < newEnd && oldText[oldStart] == newText[newStart] {
+            oldText.formIndex(after: &oldStart)
+            newText.formIndex(after: &newStart)
+        }
+
+        var oldBack = oldEnd
+        var newBack = newEnd
+
+        while oldBack > oldStart && newBack > newStart {
+            let prevOld = oldText.index(before: oldBack)
+            let prevNew = newText.index(before: newBack)
+            if oldText[prevOld] != newText[prevNew] {
+                break
+            }
+            oldBack = prevOld
+            newBack = prevNew
+        }
+
+        let location = oldText.distance(from: oldText.startIndex, to: oldStart)
+        let deletedText = String(oldText[oldStart..<oldBack])
+        let insertedText = String(newText[newStart..<newBack])
+
+        return (location, deletedText, insertedText)
+    }
+
+    private func applyEdit(location: Int, deletedText: String, insertedText: String, undoManager: UndoManager?) {
+        var newText = content.text
+        guard let startIdx = newText.index(newText.startIndex, offsetBy: location, limitedBy: newText.endIndex) else { return }
+        guard let endIdx = newText.index(startIdx, offsetBy: deletedText.count, limitedBy: newText.endIndex) else { return }
+        newText.replaceSubrange(startIdx..<endIdx, with: insertedText)
+
+        let editLocation = location
+        let oldDeleted = deletedText
+        let oldInserted = insertedText
+
+        undoManager?.registerUndo(withTarget: self) { document in
+            document.applyEdit(location: editLocation, deletedText: oldInserted, insertedText: oldDeleted, undoManager: undoManager)
+        }
+
+        var updatedSnapshot = content
+        updatedSnapshot.text = newText
+        content = updatedSnapshot
     }
 }

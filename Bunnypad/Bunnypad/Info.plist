@@ -20,7 +20,6 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>public.plain-text</string>
-				<string>public.text</string>
 			</array>
 		</dict>
 	</array>
