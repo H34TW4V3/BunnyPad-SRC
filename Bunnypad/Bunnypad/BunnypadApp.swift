@@ -6,10 +6,8 @@ let bunnyPadRepositoryURL = URL(string: "https://github.com/GSYT-Productions/Bun
 @main
 struct BunnypadApp: App {
     var body: some Scene {
-        DocumentGroup { document in
-            ContentView(document: document)
-        } makeDocument: { _, _ in
-            NoteDocument()
+        DocumentGroup(newDocument: { NoteDocument() }) { configuration in
+            ContentView(document: configuration.document)
         }
         .defaultSize(width: 860, height: 620)
         .commands {

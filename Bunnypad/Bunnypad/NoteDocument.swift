@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import UniformTypeIdentifiers
 
 struct TextSnapshot: Sendable {
@@ -62,34 +63,29 @@ enum TextFileError: LocalizedError {
     }
 }
 
-@Observable
-final class NoteDocument: Document {
+final class NoteDocument: ReferenceFileDocument, ObservableObject {
+    typealias Snapshot = TextSnapshot
+
     static let readableContentTypes: [UTType] = [.plainText]
     static let writableContentTypes: [UTType] = [.plainText]
-    var content = TextSnapshot(text: "")
 
-    struct Reader: DocumentReader {
-        @concurrent
-        func read(from source: URL, progress: consuming Subprogress) async throws -> sending TextSnapshot {
-            let handle = try FileHandle(forReadingFrom: source)
-            defer { try? handle.close() }
-            let data = try handle.read(upToCount: 16 * 1024 * 1024 + 1) ?? Data()
-            return try TextSnapshot.decode(data)
+    @Published var content = TextSnapshot(text: "")
+
+    init() {}
+
+    required init(configuration: ReadConfiguration) throws {
+        guard let data = configuration.file.regularFileContents else {
+            throw TextFileError.unsupported
         }
+        self.content = try TextSnapshot.decode(data)
     }
 
-    func reader(configuration: sending ReadConfiguration) -> sending Reader { Reader() }
-
-    func writer(configuration: sending WriteConfiguration) -> sending FileWrapperDocumentWriter<TextSnapshot> {
-        FileWrapperDocumentWriter(configuration) { snapshot, _ in
-            FileWrapper(regularFileWithContents: try snapshot.encoded())
-        }
+    func snapshot(contentType: UTType) throws -> TextSnapshot {
+        content
     }
 
-    func snapshot(contentType: UTType) async throws -> sending TextSnapshot { content }
-
-    func apply(snapshot: sending TextSnapshot, previous: sending TextSnapshot?) async throws {
-        content = snapshot
+    func fileWrapper(snapshot: TextSnapshot, configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: try snapshot.encoded())
     }
 
     func replace(with newContent: TextSnapshot, undoManager: UndoManager?) {
