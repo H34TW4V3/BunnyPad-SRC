@@ -219,6 +219,30 @@ struct iOSHomeView: View {
                     }
                 }
             }
+            .onAppear {
+                let args = ProcessInfo.processInfo.arguments
+                if args.contains("-screenshotEditor") {
+                    let sampleDoc = NoteDocument()
+                    sampleDoc.content = TextSnapshot(text: """
+                    # Welcome to BunnyPad for iPadOS! 🐰✨
+
+                    BunnyPad is the newest and cutest way to capture notes, ideas, code snippets, and plain text documents seamlessly across all your Apple devices.
+
+                    Features:
+                    • Native iPadOS & macOS multiplatform experience
+                    • Floating gold pill toolbar with instant text tools
+                    • Dynamic theme gradients: Bunny Gradient, Dark & Light
+                    • Custom window transparency and liquid glass modals
+                    • Built-in Siri & Apple Shortcuts integration ("Create Quick Note")
+                    • Plain text file import & export with zero lock-in
+
+                    Enjoy taking notes with BunnyPad!
+                    """)
+                    activeWrapper = NoteDocumentWrapper(document: sampleDoc)
+                } else if args.contains("-screenshotSettings") {
+                    showSettings = true
+                }
+            }
             .fileImporter(
                 isPresented: $showFileImporter,
                 allowedContentTypes: [.plainText],
