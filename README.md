@@ -13,6 +13,10 @@ You are allowed to use the "BunnyPad" name and logos for any modifications or fo
 It is suggested/requested but not required for modifications to be submitted back to the original repository to help improve the project for everyone.
 
 
+## Android
+
+A native Android port is available in [Android/](Android/README.md), with a text editor, system file picker, draft recovery and APK/AAB builds. Open the Android folder in Android Studio to build and run.
+
 # Information
 
 ## BunnyPad Stats
@@ -35,6 +39,7 @@ Unity Pixelheart - Helped with bug checking the program\
 ~~i486girl and K4sum1 - Helping with ideas~~\
 Wolfieboy09 - Contributor, Bug Hunter\
 teknixstuff - Debugging, assisting with try:except statements
+Aoterno Technologies / Sneksoft - Mac and IOS ports
 
 ## Stats!
 ![Stars](https://api.star-history.com/svg?repos=GSYT-Productions/BunnyPad-SRC&type=Date)
