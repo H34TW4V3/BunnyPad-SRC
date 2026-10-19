@@ -9,9 +9,8 @@ struct ContentView: View {
     var onBack: (() -> Void)? = nil
     @State private var session = EditorSession()
     @AppStorage("wordWrap") private var wordWrap = true
+    @AppStorage("fontSize") private var fontSize = 16.0
     @AppStorage("showStatusBar") private var showStatusBar = true
-    @AppStorage("showQuickNoteTile") private var showQuickNoteTile = true
-    @AppStorage("editorFontSize") private var fontSize = 14.0
     @AppStorage("appTheme") private var appTheme = "gradient"
     #if os(macOS)
     @AppStorage("windowOpacity") private var windowOpacity = 0.95
@@ -20,11 +19,18 @@ struct ContentView: View {
     @State private var showSettings = false
     @State private var showAbout = false
     @State private var showExportSheet = false
+    @State private var showSaveError = false
+    @State private var saveError = ""
 
     var body: some View {
         ZStack {
             BunnyTheme.backgroundGradient(for: appTheme)
                 .ignoresSafeArea()
+
+            if appTheme == "skeuomorphic" {
+                SkeuomorphicPaperBackground()
+                    .ignoresSafeArea()
+            }
 
             VStack(spacing: 0) {
                 BunnyToolbar(
@@ -32,7 +38,8 @@ struct ContentView: View {
                     showSettings: $showSettings,
                     showAbout: $showAbout,
                     onBack: onBack,
-                    onSave: { showExportSheet = true }
+                    onSave: { showExportSheet = true },
+                    theme: appTheme
                 )
                 NativeTextEditor(document: document, session: session, wrapsLines: wordWrap, fontSize: fontSize, theme: appTheme)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -46,7 +53,7 @@ struct ContentView: View {
         .background(WindowConfigurator(opacity: windowOpacity))
         .ignoresSafeArea()
         #endif
-        .preferredColorScheme(appTheme == "light" ? .light : .dark)
+        .preferredColorScheme(appTheme == "light" || appTheme == "skeuomorphic" ? .light : .dark)
         .focusedSceneValue(\.editorSession, session)
         .overlay {
             Rectangle().strokeBorder(.white.opacity(0.3), lineWidth: 1)
@@ -55,9 +62,22 @@ struct ContentView: View {
         .fileExporter(
             isPresented: $showExportSheet,
             document: document,
-            contentType: .plainText,
-            defaultFilename: "Note.txt"
-        ) { _ in }
+            contentType: .data,
+            defaultFilename: document.suggestedFilename
+        ) { result in
+            switch result {
+            case .success(let url):
+                document.suggestedFilename = url.lastPathComponent
+            case .failure(let error):
+                saveError = error.localizedDescription
+                showSaveError = true
+            }
+        }
+        .alert("Unable to Save File", isPresented: $showSaveError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(saveError)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .createQuickNoteRequested)) { _ in
             let timestamp = Date.now.formatted(date: .abbreviated, time: .shortened)
             document.content = TextSnapshot(text: "--- Quick Note (\(timestamp)) ---\n\n")
@@ -139,12 +159,14 @@ private struct EditorStatusBar: View {
             Text(content.lineEnding == "\r\n" ? "CRLF" : content.lineEnding == "\r" ? "CR" : "LF")
         }
         .font(.caption)
-        .foregroundStyle(.white)
+        .foregroundStyle(theme == "skeuomorphic" ? Color(red: 0.95, green: 0.90, blue: 0.80) : .white)
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
-        .background(BunnyTheme.barGradient)
+        .background(BunnyTheme.barGradient(for: theme))
         .overlay(alignment: .top) {
-            Rectangle().fill(.white.opacity(0.25)).frame(height: 1)
+            Rectangle()
+                .fill(theme == "skeuomorphic" ? Color(red: 0.85, green: 0.72, blue: 0.45).opacity(0.4) : .white.opacity(0.25))
+                .frame(height: 1)
         }
     }
 }
@@ -160,66 +182,55 @@ private struct GoToLineView: View {
         ZStack {
             BunnyTheme.backgroundGradient(for: appTheme).ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(spacing: 16) {
                 Text("Go to Line").font(.headline).foregroundStyle(BunnyTheme.textColor(for: appTheme))
                 TextField("Line number", text: $line)
                     .textFieldStyle(.roundedBorder)
-                    #if os(iOS)
-                    .keyboardType(.numberPad)
-                    #endif
-                    .onSubmit { navigate() }
+                    .frame(width: 120)
                 if invalidLine {
-                    Text("Enter a line number in this document.")
-                        .foregroundStyle(Color(red: 1.0, green: 0.4, blue: 0.4))
+                    Text("Invalid line number").font(.caption).foregroundStyle(.red)
                 }
                 HStack {
-                    Spacer()
                     Button("Cancel") { dismiss() }
-                        .keyboardShortcut(.cancelAction)
-                        .foregroundStyle(BunnyTheme.textColor(for: appTheme))
-                    Button("Go") { navigate() }
-                        .keyboardShortcut(.defaultAction)
-                        .buttonStyle(.borderedProminent)
-                        .tint(BunnyTheme.gold)
-                        .foregroundStyle(.black)
+                    Button("Go") {
+                        guard let number = Int(line), session.go(to: number) else {
+                            invalidLine = true
+                            return
+                        }
+                        dismiss()
+                    }
+                    .foregroundStyle(BunnyTheme.textColor(for: appTheme))
+                    .keyboardShortcut(.defaultAction)
                 }
             }
+            .tint(BunnyTheme.gold)
             .padding(24)
-            .frame(width: 300)
         }
     }
-
-    private func navigate() {
-        if let number = Int(line), session.go(to: number) {
-            dismiss()
-        } else {
-            invalidLine = true
-        }
-    }
-}
-
-#Preview {
-    ContentView(document: NoteDocument())
-        #if os(macOS)
-        .frame(width: 860, height: 620)
-        #endif
 }
 
 struct SettingsView: View {
     var onQuickNote: (() -> Void)? = nil
     @AppStorage("wordWrap") private var wordWrap = true
+    @AppStorage("fontSize") private var fontSize = 16.0
     @AppStorage("showStatusBar") private var showStatusBar = true
-    @AppStorage("showQuickNoteTile") private var showQuickNoteTile = true
-    @AppStorage("editorFontSize") private var fontSize = 14.0
     @AppStorage("appTheme") private var appTheme = "gradient"
+    @AppStorage("showQuickNoteTile") private var showQuickNoteTile = true
     #if os(macOS)
     @AppStorage("windowOpacity") private var windowOpacity = 0.95
+    @AppStorage("showMenuBarItem") private var showMenuBarItem = true
+    @AppStorage("menuBarLoginStatus") private var menuBarLoginStatus = ""
     #endif
 
     var body: some View {
         ZStack {
             BunnyTheme.backgroundGradient(for: appTheme)
                 .ignoresSafeArea()
+
+            if appTheme == "skeuomorphic" {
+                SkeuomorphicPaperBackground()
+                    .ignoresSafeArea()
+            }
 
             ScrollView {
                 VStack(spacing: 20) {
@@ -235,75 +246,84 @@ struct SettingsView: View {
                     }
                     .padding(.bottom, 4)
 
-                    // Quick Settings Liquid Glass Card
+                    // Quick Settings Liquid Glass / Stitched Card
                     VStack(alignment: .leading, spacing: 12) {
                         Text("QUICK SETTINGS")
                             .font(.caption.bold())
                             .foregroundStyle(BunnyTheme.gold)
 
+                        #if os(macOS)
+                        Toggle("Show BunnyPad in Menu Bar", isOn: $showMenuBarItem)
+                            .tint(BunnyTheme.gold)
+                        if showMenuBarItem {
+                            Text(menuBarLoginStatus)
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.8))
+                                .fixedSize(horizontal: false, vertical: true)
+                            HStack {
+                                Button("Enable Launch at Login") {
+                                    MenuBarLoginItem.configure(isVisible: true, userChangedPreference: true)
+                                }
+                                Button("Login Items Settings…") {
+                                    MenuBarLoginItem.openSettings()
+                                }
+                            }
+                            .font(.caption)
+                        }
+                        Text("Create a quick note from the BunnyPad menu bar item.")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.8))
+                        #else
                         Toggle("Show Quick Note Tile", isOn: $showQuickNoteTile)
                             .tint(BunnyTheme.gold)
-
-                        if showQuickNoteTile {
-                            Button {
-                                #if os(macOS)
-                                NSDocumentController.shared.newDocument(nil)
-                                #else
-                                onQuickNote?()
-                                #endif
-                            } label: {
-                                HStack {
-                                    Image(systemName: "bolt.fill")
-                                        .font(.title3)
-                                        .foregroundStyle(BunnyTheme.gold)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("New Quick Note")
-                                            .font(.headline)
-                                            .foregroundStyle(.white)
-                                        Text("Start typing immediately")
-                                            .font(.caption)
-                                            .foregroundStyle(.white.opacity(0.8))
-                                    }
-                                    Spacer()
-                                    Image(systemName: "plus.circle.fill")
-                                        .font(.title2)
-                                        .foregroundStyle(BunnyTheme.gold)
-                                }
-                                .padding(12)
-                                .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                        Button {
+                            onQuickNote?()
+                        } label: {
+                            HStack {
+                                Image(systemName: "bolt.fill")
+                                    .foregroundStyle(BunnyTheme.gold)
+                                Text("New Quick Note Now")
+                                    .fontWeight(.medium)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.5))
                             }
-                            .buttonStyle(.plain)
+                            .foregroundStyle(.white)
+                            .padding(.vertical, 8)
+                            .padding(.horizontal, 12)
+                            .background(Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
                         }
+                        .buttonStyle(.plain)
+                        #endif
                     }
                     .padding(16)
                     .background(
                         RoundedRectangle(cornerRadius: 18)
-                            .fill(.black.opacity(0.35))
-                            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.25), lineWidth: 1))
+                            .fill(appTheme == "skeuomorphic" ? AnyShapeStyle(Color(red: 0.22, green: 0.14, blue: 0.08).opacity(0.85)) : AnyShapeStyle(Color.black.opacity(0.35)))
+                            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(appTheme == "skeuomorphic" ? Color(red: 0.85, green: 0.72, blue: 0.45).opacity(0.5) : .white.opacity(0.25), lineWidth: 1))
                     )
 
-                    // Theme Options Liquid Glass Card
+                    // Theme Options Card
                     VStack(alignment: .leading, spacing: 12) {
                         Text("THEME OPTIONS")
                             .font(.caption.bold())
                             .foregroundStyle(BunnyTheme.gold)
 
-                        Picker("App Theme", selection: $appTheme) {
-                            Text("Bunny Gradient").tag("gradient")
-                            Text("Dark").tag("dark")
-                            Text("Light").tag("light")
+                        HStack(spacing: 8) {
+                            themeOption("Default", value: "gradient")
+                            themeOption("Legacy", value: "skeuomorphic")
                         }
-                        .pickerStyle(.segmented)
                     }
                     .padding(16)
                     .background(
                         RoundedRectangle(cornerRadius: 18)
-                            .fill(.black.opacity(0.35))
-                            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.25), lineWidth: 1))
+                            .fill(appTheme == "skeuomorphic" ? AnyShapeStyle(Color(red: 0.22, green: 0.14, blue: 0.08).opacity(0.85)) : AnyShapeStyle(Color.black.opacity(0.35)))
+                            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(appTheme == "skeuomorphic" ? Color(red: 0.85, green: 0.72, blue: 0.45).opacity(0.5) : .white.opacity(0.25), lineWidth: 1))
                     )
 
                     #if os(macOS)
-                    // Window Transparency Liquid Glass Card
+                    // Window Transparency Card
                     VStack(alignment: .leading, spacing: 12) {
                         Text("WINDOW TRANSPARENCY")
                             .font(.caption.bold())
@@ -323,25 +343,25 @@ struct SettingsView: View {
                     .padding(16)
                     .background(
                         RoundedRectangle(cornerRadius: 18)
-                            .fill(.black.opacity(0.35))
-                            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.25), lineWidth: 1))
+                            .fill(appTheme == "skeuomorphic" ? AnyShapeStyle(Color(red: 0.22, green: 0.14, blue: 0.08).opacity(0.85)) : AnyShapeStyle(Color.black.opacity(0.35)))
+                            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(appTheme == "skeuomorphic" ? Color(red: 0.85, green: 0.72, blue: 0.45).opacity(0.5) : .white.opacity(0.25), lineWidth: 1))
                     )
                     #endif
 
-                    // Editor Preferences Liquid Glass Card
-                    VStack(alignment: .leading, spacing: 14) {
+                    // Editor Layout Card
+                    VStack(alignment: .leading, spacing: 12) {
                         Text("EDITOR PREFERENCES")
                             .font(.caption.bold())
                             .foregroundStyle(BunnyTheme.gold)
 
-                        Toggle("Wrap long lines", isOn: $wordWrap)
+                        Toggle("Wrap Lines", isOn: $wordWrap)
                             .tint(BunnyTheme.gold)
-                        Toggle("Show status bar", isOn: $showStatusBar)
+                        Toggle("Show Status Bar", isOn: $showStatusBar)
                             .tint(BunnyTheme.gold)
 
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
-                                Text("Text size")
+                                Text("Font Size")
                                     .foregroundStyle(.white)
                                 Spacer()
                                 Text("\(Int(fontSize)) pt").bold().foregroundStyle(BunnyTheme.gold)
@@ -349,21 +369,40 @@ struct SettingsView: View {
                             Slider(value: $fontSize, in: 10...32, step: 1)
                                 .tint(BunnyTheme.gold)
                         }
+                        .padding(.top, 4)
                     }
                     .padding(16)
                     .background(
                         RoundedRectangle(cornerRadius: 18)
-                            .fill(.black.opacity(0.35))
-                            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.25), lineWidth: 1))
+                            .fill(appTheme == "skeuomorphic" ? AnyShapeStyle(Color(red: 0.22, green: 0.14, blue: 0.08).opacity(0.85)) : AnyShapeStyle(Color.black.opacity(0.35)))
+                            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(appTheme == "skeuomorphic" ? Color(red: 0.85, green: 0.72, blue: 0.45).opacity(0.5) : .white.opacity(0.25), lineWidth: 1))
                     )
                 }
-                .padding(24)
+                .foregroundStyle(.white)
+                .padding(20)
+                #if os(macOS)
+                .frame(width: 440)
+                #endif
             }
         }
-        .foregroundStyle(.white)
-        #if os(macOS)
-        .frame(width: 440, height: 520)
-        #endif
+    }
+
+    private func themeOption(_ title: LocalizedStringKey, value: String) -> some View {
+        Button {
+            appTheme = value
+        } label: {
+            Text(title)
+                .fontWeight(.medium)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .foregroundStyle(appTheme == value ? Color.black : Color.white)
+                .background(
+                    appTheme == value ? BunnyTheme.gold : Color.white.opacity(0.12),
+                    in: RoundedRectangle(cornerRadius: 10)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(appTheme == value ? .isSelected : [])
     }
 }
 
@@ -377,6 +416,11 @@ struct AboutView: View {
     var body: some View {
         ZStack {
             BunnyTheme.backgroundGradient(for: appTheme).ignoresSafeArea()
+
+            if appTheme == "skeuomorphic" {
+                SkeuomorphicPaperBackground()
+                    .ignoresSafeArea()
+            }
 
             ScrollView {
                 VStack(spacing: 16) {

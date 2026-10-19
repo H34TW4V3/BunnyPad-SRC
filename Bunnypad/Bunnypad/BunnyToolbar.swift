@@ -25,6 +25,14 @@ enum BunnyTheme {
                 colors: [Color(red: 0.94, green: 0.94, blue: 0.97), Color(red: 0.88, green: 0.88, blue: 0.94)],
                 startPoint: .top, endPoint: .bottom
             )
+        case "skeuomorphic":
+            return LinearGradient(
+                colors: [
+                    Color(red: 0.99, green: 0.97, blue: 0.89),
+                    Color(red: 0.94, green: 0.91, blue: 0.81)
+                ],
+                startPoint: .top, endPoint: .bottom
+            )
         default: // gradient
             return LinearGradient(
                 colors: [
@@ -37,29 +45,138 @@ enum BunnyTheme {
         }
     }
 
+    static func barGradient(for theme: String) -> LinearGradient {
+        switch theme {
+        case "dark":
+            return LinearGradient(
+                colors: [Color(red: 0.14, green: 0.14, blue: 0.18), Color(red: 0.18, green: 0.18, blue: 0.24)],
+                startPoint: .top, endPoint: .bottom
+            )
+        case "light":
+            return LinearGradient(
+                colors: [Color(red: 0.86, green: 0.86, blue: 0.90), Color(red: 0.78, green: 0.78, blue: 0.84)],
+                startPoint: .top, endPoint: .bottom
+            )
+        case "skeuomorphic":
+            return LinearGradient(
+                colors: [
+                    Color(red: 0.38, green: 0.22, blue: 0.12),
+                    Color(red: 0.26, green: 0.15, blue: 0.08),
+                    Color(red: 0.18, green: 0.10, blue: 0.05)
+                ],
+                startPoint: .top, endPoint: .bottom
+            )
+        default: // gradient
+            return LinearGradient(
+                colors: [
+                    Color(red: 0.12, green: 0.40, blue: 0.82),
+                    Color(red: 0.52, green: 0.24, blue: 0.91),
+                    Color(red: 0.84, green: 0.42, blue: 0.71)
+                ],
+                startPoint: .leading, endPoint: .trailing
+            )
+        }
+    }
+
+    static var barGradient: LinearGradient {
+        barGradient(for: "gradient")
+    }
+
     static func textColor(for theme: String) -> Color {
-        theme == "light" ? .black : .white
+        switch theme {
+        case "light":
+            return .black
+        case "skeuomorphic":
+            return Color(red: 0.15, green: 0.12, blue: 0.10)
+        default:
+            return .white
+        }
     }
 
     #if os(iOS)
     static func uiTextColor(for theme: String) -> UIColor {
-        theme == "light" ? .black : .white
+        switch theme {
+        case "light":
+            return .black
+        case "skeuomorphic":
+            return UIColor(red: 0.15, green: 0.12, blue: 0.10, alpha: 1)
+        default:
+            return .white
+        }
     }
     #elseif os(macOS)
     static func nsTextColor(for theme: String) -> NSColor {
-        theme == "light" ? .black : .white
+        switch theme {
+        case "light":
+            return .black
+        case "skeuomorphic":
+            return NSColor(red: 0.15, green: 0.12, blue: 0.10, alpha: 1)
+        default:
+            return .white
+        }
     }
     #endif
 
     static let editorGradient = backgroundGradient(for: "gradient")
-    static let barGradient = LinearGradient(
-        colors: [
-            Color(red: 0.12, green: 0.40, blue: 0.82),
-            Color(red: 0.52, green: 0.24, blue: 0.91),
-            Color(red: 0.84, green: 0.42, blue: 0.71)
-        ],
-        startPoint: .leading, endPoint: .trailing
-    )
+}
+
+struct SkeuomorphicPaperBackground: View {
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .top) {
+                // Subtle ruled lines on yellow legal pad
+                Canvas { context, size in
+                    let lineSpacing: CGFloat = 28.0
+                    var y: CGFloat = 40.0
+                    while y < size.height {
+                        var path = Path()
+                        path.move(to: CGPoint(x: 0, y: y))
+                        path.addLine(to: CGPoint(x: size.width, y: y))
+                        context.stroke(path, with: .color(Color(red: 0.35, green: 0.52, blue: 0.80).opacity(0.18)), lineWidth: 1)
+                        y += lineSpacing
+                    }
+
+                    // Vertical red margin rule
+                    var marginPath = Path()
+                    marginPath.move(to: CGPoint(x: 44, y: 0))
+                    marginPath.addLine(to: CGPoint(x: 44, y: size.height))
+                    context.stroke(marginPath, with: .color(Color(red: 0.88, green: 0.32, blue: 0.32).opacity(0.35)), lineWidth: 1.5)
+                }
+
+                // Stitched rich leather header strip at the top
+                VStack(spacing: 0) {
+                    ZStack(alignment: .bottom) {
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.36, green: 0.20, blue: 0.10),
+                                Color(red: 0.24, green: 0.13, blue: 0.06)
+                            ],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                        .frame(height: 24)
+
+                        // Golden stitches
+                        HStack(spacing: 6) {
+                            ForEach(0..<max(1, Int(geo.size.width / 10)), id: \.self) { _ in
+                                Rectangle()
+                                    .fill(Color(red: 0.90, green: 0.80, blue: 0.50).opacity(0.85))
+                                    .frame(width: 4, height: 1.5)
+                            }
+                        }
+                        .padding(.bottom, 3)
+                    }
+
+                    // Drop shadow underneath leather trim
+                    LinearGradient(
+                        colors: [Color.black.opacity(0.3), Color.clear],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                    .frame(height: 5)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
 }
 
 struct BunnyToolbar: View {
@@ -69,13 +186,15 @@ struct BunnyToolbar: View {
     @Binding var showAbout: Bool
     var onBack: (() -> Void)? = nil
     var onSave: (() -> Void)? = nil
+    var theme: String = "gradient"
 
-    init(session: EditorSession, showSettings: Binding<Bool> = .constant(false), showAbout: Binding<Bool> = .constant(false), onBack: (() -> Void)? = nil, onSave: (() -> Void)? = nil) {
+    init(session: EditorSession, showSettings: Binding<Bool> = .constant(false), showAbout: Binding<Bool> = .constant(false), onBack: (() -> Void)? = nil, onSave: (() -> Void)? = nil, theme: String = "gradient") {
         self.session = session
         self._showSettings = showSettings
         self._showAbout = showAbout
         self.onBack = onBack
         self.onSave = onSave
+        self.theme = theme
     }
 
     var body: some View {
@@ -127,9 +246,17 @@ struct BunnyToolbar: View {
         }
         .background(
             Capsule()
-                .fill(BunnyTheme.barGradient)
+                .fill(BunnyTheme.barGradient(for: theme))
                 .shadow(color: .black.opacity(0.35), radius: 8, x: 0, y: 4)
-                .overlay(Capsule().strokeBorder(.white.opacity(0.3), lineWidth: 1))
+                .overlay(
+                    Capsule()
+                        .strokeBorder(
+                            theme == "skeuomorphic"
+                                ? AnyShapeStyle(LinearGradient(colors: [Color(red: 0.85, green: 0.72, blue: 0.42), Color(red: 0.50, green: 0.35, blue: 0.18)], startPoint: .top, endPoint: .bottom))
+                                : AnyShapeStyle(.white.opacity(0.3)),
+                            lineWidth: 1
+                        )
+                )
         )
         .padding(.horizontal, 16)
         .padding(.top, 8)
@@ -173,7 +300,7 @@ struct BunnyToolbar: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background(BunnyTheme.barGradient)
+        .background(BunnyTheme.barGradient(for: theme))
         .padding(.top, 28)
     }
 
@@ -181,7 +308,7 @@ struct BunnyToolbar: View {
         Rectangle().fill(.white.opacity(0.3)).frame(width: 1, height: 18).padding(.horizontal, 4)
     }
 
-    private func tool(_ title: LocalizedStringKey, icon: String, action: @escaping () -> Void) -> some View {
+    private func tool(_ title: LocalizedKey, icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: icon).labelStyle(.iconOnly)
         }
@@ -200,6 +327,8 @@ struct BunnyToolbar: View {
     }
     #endif
 }
+
+typealias LocalizedKey = LocalizedStringKey
 
 private struct BunnyToolButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled

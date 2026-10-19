@@ -151,7 +151,6 @@ struct NativeTextEditor: NSViewRepresentable {
         text.convertEncoding = { context.coordinator.useUTF8() }
         text.drawsBackground = false
         text.textColor = BunnyTheme.nsTextColor(for: theme)
-        text.insertionPointColor = BunnyTheme.goldNSColor
         text.isRichText = false
         text.allowsUndo = false
         text.usesFindBar = true
@@ -163,7 +162,15 @@ struct NativeTextEditor: NSViewRepresentable {
         text.minSize = .zero
         text.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         text.textContainerInset = NSSize(width: 20, height: 20)
-        text.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+
+        if theme == "skeuomorphic" {
+            text.font = NSFont(name: "Noteworthy-Bold", size: fontSize) ?? NSFont(name: "MarkerFelt-Thin", size: fontSize) ?? .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            text.insertionPointColor = NSColor(red: 0.15, green: 0.12, blue: 0.10, alpha: 1)
+        } else {
+            text.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            text.insertionPointColor = BunnyTheme.goldNSColor
+        }
+
         text.setAccessibilityLabel("Document text")
         text.string = document.content.text
         text.delegate = context.coordinator
@@ -177,14 +184,25 @@ struct NativeTextEditor: NSViewRepresentable {
         context.coordinator.parent = self
         guard let text = scroll.documentView as? NSTextView else { return }
         text.textColor = BunnyTheme.nsTextColor(for: theme)
+
+        if theme == "skeuomorphic" {
+            text.insertionPointColor = NSColor(red: 0.15, green: 0.12, blue: 0.10, alpha: 1)
+            let desired = NSFont(name: "Noteworthy-Bold", size: fontSize) ?? NSFont(name: "MarkerFelt-Thin", size: fontSize) ?? .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            if text.font != desired {
+                text.font = desired
+            }
+        } else {
+            text.insertionPointColor = BunnyTheme.goldNSColor
+            if text.font?.pointSize != CGFloat(fontSize) || text.font?.fontName.contains("Noteworthy") == true {
+                text.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            }
+        }
+
         if text.string != document.content.text {
             let selection = text.selectedRange()
             text.string = document.content.text
             context.coordinator.resetLineStarts()
             text.setSelectedRange(NSRange(location: min(selection.location, text.string.utf16.count), length: 0))
-        }
-        if text.font?.pointSize != CGFloat(fontSize) {
-            text.font = NSFontManager.shared.convert(text.font ?? .systemFont(ofSize: fontSize), toSize: fontSize)
         }
         configure(text, in: scroll)
     }
@@ -262,13 +280,13 @@ struct NativeTextEditor: NSViewRepresentable {
             return result
         }
 
-        private func updatePosition(_ text: NSTextView) {
-            let nsString = text.string as NSString
+        private func updatePosition(_ textView: NSTextView) {
+            let nsString = textView.string as NSString
             let length = nsString.length
-            let offset = min(text.selectedRange().location, length)
+            let offset = min(textView.selectedRange().location, length)
 
             if lineStarts.isEmpty {
-                updateLineStarts(for: text.string)
+                updateLineStarts(for: textView.string)
             }
 
             let lineIdx = lineIndex(for: offset)
@@ -308,8 +326,15 @@ struct NativeTextEditor: UIViewRepresentable {
         textView.isOpaque = false
         textView.backgroundColor = .clear
         textView.textColor = BunnyTheme.uiTextColor(for: theme)
-        textView.tintColor = BunnyTheme.goldUIColor
-        textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+
+        if theme == "skeuomorphic" {
+            textView.font = UIFont(name: "Noteworthy-Bold", size: fontSize) ?? UIFont(name: "MarkerFelt-Thin", size: fontSize) ?? .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            textView.tintColor = UIColor(red: 0.15, green: 0.12, blue: 0.10, alpha: 1)
+        } else {
+            textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            textView.tintColor = BunnyTheme.goldUIColor
+        }
+
         textView.isFindInteractionEnabled = true
         textView.autocorrectionType = .no
         textView.autocapitalizationType = .none
@@ -333,14 +358,25 @@ struct NativeTextEditor: UIViewRepresentable {
     func updateUIView(_ textView: BunnyTextView, context: Context) {
         context.coordinator.parent = self
         textView.textColor = BunnyTheme.uiTextColor(for: theme)
+
+        if theme == "skeuomorphic" {
+            textView.tintColor = UIColor(red: 0.15, green: 0.12, blue: 0.10, alpha: 1)
+            let desired = UIFont(name: "Noteworthy-Bold", size: fontSize) ?? UIFont(name: "MarkerFelt-Thin", size: fontSize) ?? .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            if textView.font != desired {
+                textView.font = desired
+            }
+        } else {
+            textView.tintColor = BunnyTheme.goldUIColor
+            if textView.font?.pointSize != CGFloat(fontSize) || textView.font?.fontName.contains("Noteworthy") == true {
+                textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            }
+        }
+
         if textView.text != document.content.text {
             let selectedRange = textView.selectedRange
             textView.text = document.content.text
             context.coordinator.resetLineStarts()
             textView.selectedRange = NSRange(location: min(selectedRange.location, textView.text.count), length: 0)
-        }
-        if textView.font?.pointSize != CGFloat(fontSize) {
-            textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
         }
         configure(textView)
     }

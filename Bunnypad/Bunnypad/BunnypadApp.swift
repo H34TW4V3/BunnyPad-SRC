@@ -40,6 +40,19 @@ struct BunnyPadShortcuts: AppShortcutsProvider {
 
 @main
 struct BunnypadApp: App {
+    #if os(macOS)
+    @NSApplicationDelegateAdaptor(BunnyPadAppDelegate.self) private var appDelegate
+    @AppStorage("showMenuBarItem") private var showMenuBarItem = true
+    #endif
+    init() {
+        // Retire the old dark/light choices without changing the Legacy preference.
+        let defaults = UserDefaults.standard
+        if let theme = defaults.string(forKey: "appTheme"),
+           theme != "gradient" && theme != "skeuomorphic" {
+            defaults.set("gradient", forKey: "appTheme")
+        }
+    }
+
     var body: some Scene {
         #if os(macOS)
         DocumentGroup(newDocument: { NoteDocument() }) { configuration in
@@ -54,6 +67,17 @@ struct BunnypadApp: App {
             SettingsView()
         }
 
+        MenuBarExtra(isInserted: $showMenuBarItem) {
+            BunnyPadMenuBarContent()
+        } label: {
+            Image(nsImage: BunnyPadMenuBarIcon.image)
+                .accessibilityLabel("BunnyPad")
+        }
+        .menuBarExtraStyle(.menu)
+        .onChange(of: showMenuBarItem) { _, isVisible in
+            MenuBarLoginItem.configure(isVisible: isVisible, userChangedPreference: true)
+        }
+
         Window("About BunnyPad", id: "about") {
             AboutView()
         }
@@ -65,6 +89,136 @@ struct BunnypadApp: App {
         #endif
     }
 }
+
+#if os(macOS)
+private final class BunnyPadAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
+        // Skip SwiftUI's default document picker; create the editor after scene setup.
+        false
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let showMenuBarItem = UserDefaults.standard.object(forKey: "showMenuBarItem") as? Bool ?? true
+        MenuBarLoginItem.configure(isVisible: showMenuBarItem)
+        DispatchQueue.main.async {
+            let controller = NSDocumentController.shared
+            guard controller.documents.isEmpty else { return }
+            controller.newDocument(nil)
+        }
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        MenuBarLoginItem.refreshStatus()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard !flag else { return true }
+        let controller = NSDocumentController.shared
+        if controller.documents.isEmpty {
+            controller.newDocument(nil)
+        } else {
+            controller.documents.forEach { $0.showWindows() }
+        }
+        return true
+    }
+}
+
+private enum BunnyPadMenuBarIcon {
+    static let image: NSImage = {
+        guard let source = NSImage(named: "MenuBarBunny") else {
+            return NSImage(systemSymbolName: "hare.fill", accessibilityDescription: "BunnyPad") ?? NSImage()
+        }
+        // MenuBarExtra uses the underlying NSImage size, not SwiftUI frame modifiers.
+        let size = NSSize(width: 22, height: 22)
+        let image = NSImage(size: size, flipped: false) { destination in
+            let scale = min(destination.width / source.size.width, destination.height / source.size.height)
+            let drawingSize = NSSize(width: source.size.width * scale, height: source.size.height * scale)
+            let drawingRect = NSRect(
+                x: destination.midX - drawingSize.width / 2,
+                y: destination.midY - drawingSize.height / 2,
+                width: drawingSize.width,
+                height: drawingSize.height
+            )
+            source.draw(in: drawingRect, from: .zero, operation: .sourceOver, fraction: 1)
+            return true
+        }
+        image.isTemplate = false
+        image.accessibilityDescription = "BunnyPad"
+        return image
+    }()
+}
+
+private struct BunnyPadMenuBarContent: View {
+    var body: some View {
+        Button("New Quick Note", systemImage: "square.and.pencil") {
+            NSApp.activate(ignoringOtherApps: true)
+            NSDocumentController.shared.newDocument(nil)
+        }
+        Divider()
+        SettingsLink {
+            Text("Settings…")
+        }
+        Divider()
+        Button("Quit BunnyPad") {
+            NSApp.terminate(nil)
+        }
+    }
+}
+
+struct EditorCommands: Commands {
+    @FocusedValue(\.editorSession) private var session
+    @Environment(\.openWindow) private var openWindow
+    @AppStorage("wordWrap") private var wordWrap = true
+    @AppStorage("showStatusBar") private var showStatusBar = true
+
+    var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About BunnyPad") { openWindow(id: "about") }
+        }
+        CommandGroup(after: .saveItem) {
+            Divider()
+            Button("Print…") { session?.printDocument() }
+                .keyboardShortcut("p")
+                .disabled(session == nil)
+        }
+        CommandGroup(after: .textEditing) {
+            Divider()
+            Button("Find…") { session?.find() }.keyboardShortcut("f")
+            Button("Find and Replace…") { session?.find(replacing: true) }
+                .keyboardShortcut("f", modifiers: [.command, .option])
+            Button("Go to Line…") { session?.showGoToLine = true }
+                .keyboardShortcut("l")
+            Divider()
+            Button("Insert Date and Time") { session?.insertDate() }
+                .keyboardShortcut("d", modifiers: [.command, .shift])
+        }
+        CommandMenu("Format") {
+            Toggle("Word Wrap", isOn: $wordWrap)
+            Button("Font…") {
+                guard let textView = session?.textView else { return }
+                textView.window?.makeFirstResponder(textView)
+                NSFontManager.shared.orderFrontFontPanel(nil)
+            }
+            .keyboardShortcut("t")
+            .disabled(session == nil)
+            Button("Use UTF-8 Encoding") {
+                (session?.textView as? BunnyTextView)?.useUTF8(nil)
+            }
+            .disabled(session == nil)
+        }
+        CommandGroup(after: .toolbar) {
+            Toggle("Show Status Bar", isOn: $showStatusBar)
+        }
+        CommandGroup(replacing: .help) {
+            Link("BunnyPad Source and Help", destination: bunnyPadRepositoryURL)
+        }
+    }
+}
+#endif
 
 #if os(iOS)
 private struct NoteDocumentWrapper: Identifiable, Hashable {
@@ -81,10 +235,12 @@ private struct NoteDocumentWrapper: Identifiable, Hashable {
 }
 
 struct iOSHomeView: View {
-    @State private var activeWrapper: NoteDocumentWrapper? = nil
+    @State private var activeWrapper: NoteDocumentWrapper? = NoteDocumentWrapper(document: NoteDocument())
     @State private var showSettings = false
     @State private var showAbout = false
     @State private var showFileImporter = false
+    @State private var fileError: String?
+    @State private var showFileError = false
     @AppStorage("appTheme") private var appTheme = "gradient"
     @AppStorage("showQuickNoteTile") private var showQuickNoteTile = true
 
@@ -93,6 +249,11 @@ struct iOSHomeView: View {
             ZStack {
                 BunnyTheme.backgroundGradient(for: appTheme)
                     .ignoresSafeArea()
+
+                if appTheme == "skeuomorphic" {
+                    SkeuomorphicPaperBackground()
+                        .ignoresSafeArea()
+                }
 
                 ScrollView {
                     VStack(spacing: 28) {
@@ -146,11 +307,17 @@ struct iOSHomeView: View {
                                         Text("Open File")
                                             .font(.subheadline.bold())
                                     }
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(appTheme == "skeuomorphic" ? Color(red: 0.22, green: 0.14, blue: 0.08) : .white)
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 16)
-                                    .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 18))
-                                    .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.3), lineWidth: 1))
+                                    .background(
+                                        appTheme == "skeuomorphic" ? AnyShapeStyle(Color(red: 0.90, green: 0.86, blue: 0.76).opacity(0.85)) : AnyShapeStyle(Color.white.opacity(0.18)),
+                                        in: RoundedRectangle(cornerRadius: 18)
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 18)
+                                            .strokeBorder(appTheme == "skeuomorphic" ? Color(red: 0.65, green: 0.55, blue: 0.40).opacity(0.6) : .white.opacity(0.3), lineWidth: 1)
+                                    )
                                     .shadow(color: .black.opacity(0.2), radius: 6, x: 0, y: 3)
                                 }
                             }
@@ -170,19 +337,25 @@ struct iOSHomeView: View {
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text("Quick Note Tile")
                                                 .font(.headline)
-                                                .foregroundStyle(.white)
+                                                .foregroundStyle(appTheme == "skeuomorphic" ? Color(red: 0.22, green: 0.14, blue: 0.08) : .white)
                                             Text("Instant scratchpad for quick ideas")
                                                 .font(.caption)
-                                                .foregroundStyle(.white.opacity(0.8))
+                                                .foregroundStyle(appTheme == "skeuomorphic" ? Color(red: 0.35, green: 0.26, blue: 0.18) : .white.opacity(0.8))
                                         }
                                         Spacer()
                                         Image(systemName: "chevron.right")
-                                            .foregroundStyle(.white.opacity(0.5))
+                                            .foregroundStyle(appTheme == "skeuomorphic" ? Color(red: 0.45, green: 0.35, blue: 0.25) : .white.opacity(0.5))
                                     }
                                     .padding(.horizontal, 18)
                                     .padding(.vertical, 14)
-                                    .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 18))
-                                    .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(BunnyTheme.gold.opacity(0.5), lineWidth: 1))
+                                    .background(
+                                        appTheme == "skeuomorphic" ? AnyShapeStyle(Color(red: 0.90, green: 0.86, blue: 0.76).opacity(0.85)) : AnyShapeStyle(Color.white.opacity(0.14)),
+                                        in: RoundedRectangle(cornerRadius: 18)
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 18)
+                                            .strokeBorder(BunnyTheme.gold.opacity(0.5), lineWidth: 1)
+                                    )
                                     .shadow(color: .black.opacity(0.2), radius: 6, x: 0, y: 3)
                                 }
                             }
@@ -199,7 +372,14 @@ struct iOSHomeView: View {
                                     .foregroundStyle(BunnyTheme.gold)
                                     .padding(.horizontal, 18)
                                     .padding(.vertical, 12)
-                                    .background(.white.opacity(0.15), in: Capsule())
+                                    .background(
+                                        appTheme == "skeuomorphic" ? AnyShapeStyle(Color(red: 0.22, green: 0.14, blue: 0.08).opacity(0.85)) : AnyShapeStyle(Color.white.opacity(0.15)),
+                                        in: Capsule()
+                                    )
+                                    .overlay(
+                                        Capsule()
+                                            .strokeBorder(appTheme == "skeuomorphic" ? Color(red: 0.85, green: 0.72, blue: 0.45).opacity(0.4) : .clear, lineWidth: 1)
+                                    )
                             }
 
                             Button {
@@ -210,7 +390,14 @@ struct iOSHomeView: View {
                                     .foregroundStyle(BunnyTheme.gold)
                                     .padding(.horizontal, 18)
                                     .padding(.vertical, 12)
-                                    .background(.white.opacity(0.15), in: Capsule())
+                                    .background(
+                                        appTheme == "skeuomorphic" ? AnyShapeStyle(Color(red: 0.22, green: 0.14, blue: 0.08).opacity(0.85)) : AnyShapeStyle(Color.white.opacity(0.15)),
+                                        in: Capsule()
+                                    )
+                                    .overlay(
+                                        Capsule()
+                                            .strokeBorder(appTheme == "skeuomorphic" ? Color(red: 0.85, green: 0.72, blue: 0.45).opacity(0.4) : .clear, lineWidth: 1)
+                                    )
                             }
                         }
                         .padding(.top, 12)
@@ -245,18 +432,26 @@ struct iOSHomeView: View {
             }
             .fileImporter(
                 isPresented: $showFileImporter,
-                allowedContentTypes: [.plainText],
+                allowedContentTypes: NoteDocument.readableContentTypes,
                 allowsMultipleSelection: false
             ) { result in
-                guard let urls = try? result.get(), let url = urls.first else { return }
-                guard url.startAccessingSecurityScopedResource() else { return }
-                defer { url.stopAccessingSecurityScopedResource() }
-                if let data = try? Data(contentsOf: url),
-                   let snapshot = try? TextSnapshot.decode(data) {
+                do {
+                    guard let url = try result.get().first else { return }
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
                     let doc = NoteDocument()
-                    doc.content = snapshot
+                    doc.content = try TextSnapshot.decode(Data(contentsOf: url))
+                    doc.suggestedFilename = url.lastPathComponent
                     activeWrapper = NoteDocumentWrapper(document: doc)
+                } catch {
+                    fileError = error.localizedDescription
+                    showFileError = true
                 }
+            }
+            .alert("Unable to Open File", isPresented: $showFileError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(fileError ?? "The file could not be opened.")
             }
             .onReceive(NotificationCenter.default.publisher(for: .createQuickNoteRequested)) { _ in
                 let doc = NoteDocument()
@@ -296,58 +491,6 @@ struct iOSHomeView: View {
                         }
                 }
             }
-        }
-    }
-}
-#endif
-
-#if os(macOS)
-struct EditorCommands: Commands {
-    @FocusedValue(\.editorSession) private var session
-    @Environment(\.openWindow) private var openWindow
-    @AppStorage("wordWrap") private var wordWrap = true
-    @AppStorage("showStatusBar") private var showStatusBar = true
-
-    var body: some Commands {
-        CommandGroup(replacing: .appInfo) {
-            Button("About BunnyPad") { openWindow(id: "about") }
-        }
-        CommandGroup(after: .saveItem) {
-            Divider()
-            Button("Print…") { session?.printDocument() }
-                .keyboardShortcut("p")
-                .disabled(session == nil)
-        }
-        CommandGroup(after: .textEditing) {
-            Divider()
-            Button("Find…") { session?.find() }.keyboardShortcut("f")
-            Button("Find and Replace…") { session?.find(replacing: true) }
-                .keyboardShortcut("f", modifiers: [.command, .option])
-            Button("Go to Line…") { session?.showGoToLine = true }
-                .keyboardShortcut("l")
-            Divider()
-            Button("Insert Date and Time") { session?.insertDate() }
-                .keyboardShortcut("d", modifiers: [.command, .shift])
-        }
-        CommandMenu("Format") {
-            Toggle("Word Wrap", isOn: $wordWrap)
-            Button("Font…") {
-                guard let textView = session?.textView else { return }
-                textView.window?.makeFirstResponder(textView)
-                NSFontManager.shared.orderFrontFontPanel(nil)
-            }
-            .keyboardShortcut("t")
-            .disabled(session == nil)
-            Button("Use UTF-8 Encoding") {
-                (session?.textView as? BunnyTextView)?.useUTF8(nil)
-            }
-            .disabled(session == nil)
-        }
-        CommandGroup(after: .toolbar) {
-            Toggle("Show Status Bar", isOn: $showStatusBar)
-        }
-        CommandGroup(replacing: .help) {
-            Link("BunnyPad Source and Help", destination: bunnyPadRepositoryURL)
         }
     }
 }
