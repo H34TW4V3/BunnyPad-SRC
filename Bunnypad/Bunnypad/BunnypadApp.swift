@@ -1,6 +1,8 @@
 import AppIntents
 #if os(macOS)
 import AppKit
+#elseif os(iOS)
+import UIKit
 #endif
 import SwiftUI
 import UniformTypeIdentifiers
@@ -38,12 +40,55 @@ struct BunnyPadShortcuts: AppShortcutsProvider {
     }
 }
 
+// MARK: - Dynamic App Icon Support
+@MainActor
+func updatePlatformAppIcon(for theme: String) {
+    #if os(macOS)
+    let bundlePath = Bundle.main.bundlePath
+    if theme == "skeuomorphic" {
+        let iconImage: NSImage? = NSImage(named: "MacLegacyLogo")
+            ?? NSImage(named: "BunnyPadMacLegacyLogo")
+            ?? (Bundle.main.path(forResource: "BunnyPadMacLegacyLogo", ofType: "png").flatMap { NSImage(contentsOfFile: $0) })
+            ?? (Bundle.main.path(forResource: "BunnyPadLegacyLogo", ofType: "png").flatMap { NSImage(contentsOfFile: $0) })
+        if let iconImage {
+            NSApplication.shared.applicationIconImage = iconImage
+            _ = NSWorkspace.shared.setIcon(iconImage, forFile: bundlePath, options: [])
+        }
+    } else {
+        NSApplication.shared.applicationIconImage = nil
+        _ = NSWorkspace.shared.setIcon(nil, forFile: bundlePath, options: [])
+    }
+    #elseif os(iOS)
+    guard UIApplication.shared.supportsAlternateIcons else { return }
+    let currentIcon = UIApplication.shared.alternateIconName
+    if theme == "skeuomorphic" {
+        if currentIcon != "LegacyIcon" {
+            UIApplication.shared.setAlternateIconName("LegacyIcon") { error in
+                if let error = error {
+                    print("Error setting legacy alternate icon: \(error.localizedDescription)")
+                }
+            }
+        }
+    } else {
+        if currentIcon != nil {
+            UIApplication.shared.setAlternateIconName(nil) { error in
+                if let error = error {
+                    print("Error resetting alternate icon to default: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+    #endif
+}
+
 @main
 struct BunnypadApp: App {
     #if os(macOS)
     @NSApplicationDelegateAdaptor(BunnyPadAppDelegate.self) private var appDelegate
     @AppStorage("showMenuBarItem") private var showMenuBarItem = true
     #endif
+    @AppStorage("appTheme") private var appTheme = "gradient"
+
     init() {
         // Retire the old dark/light choices without changing the Legacy preference.
         let defaults = UserDefaults.standard
@@ -62,9 +107,15 @@ struct BunnypadApp: App {
         .commands {
             EditorCommands()
         }
+        .onChange(of: appTheme) { _, newTheme in
+            updatePlatformAppIcon(for: newTheme)
+        }
 
         Settings {
             SettingsView()
+                .onChange(of: appTheme) { _, newTheme in
+                    updatePlatformAppIcon(for: newTheme)
+                }
         }
 
         MenuBarExtra(isInserted: $showMenuBarItem) {
@@ -85,6 +136,12 @@ struct BunnypadApp: App {
         #else
         WindowGroup {
             iOSHomeView()
+                .onAppear {
+                    updatePlatformAppIcon(for: appTheme)
+                }
+                .onChange(of: appTheme) { _, newTheme in
+                    updatePlatformAppIcon(for: newTheme)
+                }
         }
         #endif
     }
@@ -100,6 +157,8 @@ private final class BunnyPadAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let showMenuBarItem = UserDefaults.standard.object(forKey: "showMenuBarItem") as? Bool ?? true
         MenuBarLoginItem.configure(isVisible: showMenuBarItem)
+        let theme = UserDefaults.standard.string(forKey: "appTheme") ?? "gradient"
+        updatePlatformAppIcon(for: theme)
         DispatchQueue.main.async {
             let controller = NSDocumentController.shared
             guard controller.documents.isEmpty else { return }
@@ -235,23 +294,21 @@ private struct NoteDocumentWrapper: Identifiable, Hashable {
 }
 
 struct iOSHomeView: View {
-    @State private var activeWrapper: NoteDocumentWrapper? = NoteDocumentWrapper(document: NoteDocument())
+    @State private var activeWrapper: NoteDocumentWrapper? = nil
     @State private var showSettings = false
     @State private var showAbout = false
     @State private var showFileImporter = false
     @State private var fileError: String?
     @State private var showFileError = false
     @AppStorage("appTheme") private var appTheme = "gradient"
-    @AppStorage("showQuickNoteTile") private var showQuickNoteTile = true
 
     var body: some View {
         NavigationStack {
             ZStack {
-                BunnyTheme.backgroundGradient(for: appTheme)
-                    .ignoresSafeArea()
-
                 if appTheme == "skeuomorphic" {
-                    SkeuomorphicPaperBackground()
+                    IOS6LinenBackground()
+                } else {
+                    BunnyTheme.backgroundGradient(for: appTheme)
                         .ignoresSafeArea()
                 }
 
@@ -261,102 +318,92 @@ struct iOSHomeView: View {
 
                         // Header with Logo
                         VStack(spacing: 14) {
-                            Image("AboutLogo")
-                                .renderingMode(.original)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 110, height: 110)
-                                .shadow(color: .black.opacity(0.25), radius: 12, x: 0, y: 6)
+                            if appTheme == "skeuomorphic" {
+                                IOS6GlossyAppIcon(size: 110)
 
-                            Text("BunnyPad")
-                                .font(.system(size: 38, weight: .bold, design: .rounded))
-                                .foregroundStyle(BunnyTheme.textColor(for: appTheme))
+                                Text("BunnyPad")
+                                    .font(.system(size: 38, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white)
+                                    .shadow(color: Color.black.opacity(0.85), radius: 0, x: 0, y: -1)
 
-                            Text("The Newest and Cutest way to take notes")
-                                .font(.subheadline)
-                                .foregroundStyle(BunnyTheme.textColor(for: appTheme).opacity(0.85))
-                                .multilineTextAlignment(.center)
+                                Text("The Newest and Cutest way to take notes")
+                                    .font(.subheadline)
+                                    .foregroundStyle(Color(white: 0.85))
+                                    .shadow(color: Color.black.opacity(0.75), radius: 0, x: 0, y: -1)
+                                    .multilineTextAlignment(.center)
+                            } else {
+                                Image("AboutLogo")
+                                    .renderingMode(.original)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 110, height: 110)
+                                    .shadow(color: .black.opacity(0.25), radius: 12, x: 0, y: 6)
+
+                                Text("BunnyPad")
+                                    .font(.system(size: 38, weight: .bold, design: .rounded))
+                                    .foregroundStyle(BunnyTheme.textColor(for: appTheme))
+
+                                Text("The Newest and Cutest way to take notes")
+                                    .font(.subheadline)
+                                    .foregroundStyle(BunnyTheme.textColor(for: appTheme).opacity(0.85))
+                                    .multilineTextAlignment(.center)
+                            }
                         }
 
                         // Main Action Tiles: New Note & Open File
                         VStack(spacing: 14) {
-                            HStack(spacing: 12) {
-                                Button {
-                                    let newDoc = NoteDocument()
-                                    activeWrapper = NoteDocumentWrapper(document: newDoc)
-                                } label: {
-                                    VStack(spacing: 8) {
-                                        Image(systemName: "square.and.pencil")
-                                            .font(.title)
-                                        Text("New Note")
-                                            .font(.subheadline.bold())
+                            if appTheme == "skeuomorphic" {
+                                HStack(spacing: 12) {
+                                    IOS6GlossyActionTile(title: "New Note", icon: "square.and.pencil", isPrimary: true) {
+                                        let newDoc = NoteDocument()
+                                        activeWrapper = NoteDocumentWrapper(document: newDoc)
                                     }
-                                    .foregroundStyle(.black)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 16)
-                                    .background(BunnyTheme.gold, in: RoundedRectangle(cornerRadius: 18))
-                                    .shadow(color: .black.opacity(0.2), radius: 6, x: 0, y: 3)
-                                }
 
-                                Button {
-                                    showFileImporter = true
-                                } label: {
-                                    VStack(spacing: 8) {
-                                        Image(systemName: "folder.fill")
-                                            .font(.title)
-                                        Text("Open File")
-                                            .font(.subheadline.bold())
+                                    IOS6GlossyActionTile(title: "Open File", icon: "folder.fill", isPrimary: false) {
+                                        showFileImporter = true
                                     }
-                                    .foregroundStyle(appTheme == "skeuomorphic" ? Color(red: 0.22, green: 0.14, blue: 0.08) : .white)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 16)
-                                    .background(
-                                        appTheme == "skeuomorphic" ? AnyShapeStyle(Color(red: 0.90, green: 0.86, blue: 0.76).opacity(0.85)) : AnyShapeStyle(Color.white.opacity(0.18)),
-                                        in: RoundedRectangle(cornerRadius: 18)
-                                    )
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 18)
-                                            .strokeBorder(appTheme == "skeuomorphic" ? Color(red: 0.65, green: 0.55, blue: 0.40).opacity(0.6) : .white.opacity(0.3), lineWidth: 1)
-                                    )
-                                    .shadow(color: .black.opacity(0.2), radius: 6, x: 0, y: 3)
                                 }
-                            }
-
-                            // Quick Note Tile (configurable in Quick Settings)
-                            if showQuickNoteTile {
-                                Button {
-                                    let doc = NoteDocument()
-                                    let timestamp = Date.now.formatted(date: .abbreviated, time: .shortened)
-                                    doc.content = TextSnapshot(text: "--- Quick Note (\(timestamp)) ---\n\n")
-                                    activeWrapper = NoteDocumentWrapper(document: doc)
-                                } label: {
-                                    HStack(spacing: 12) {
-                                        Image(systemName: "bolt.fill")
-                                            .font(.title2)
-                                            .foregroundStyle(BunnyTheme.gold)
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text("Quick Note Tile")
-                                                .font(.headline)
-                                                .foregroundStyle(appTheme == "skeuomorphic" ? Color(red: 0.22, green: 0.14, blue: 0.08) : .white)
-                                            Text("Instant scratchpad for quick ideas")
-                                                .font(.caption)
-                                                .foregroundStyle(appTheme == "skeuomorphic" ? Color(red: 0.35, green: 0.26, blue: 0.18) : .white.opacity(0.8))
+                            } else {
+                                HStack(spacing: 12) {
+                                    Button {
+                                        let newDoc = NoteDocument()
+                                        activeWrapper = NoteDocumentWrapper(document: newDoc)
+                                    } label: {
+                                        VStack(spacing: 8) {
+                                            Image(systemName: "square.and.pencil")
+                                                .font(.title)
+                                            Text("New Note")
+                                                .font(.subheadline.bold())
                                         }
-                                        Spacer()
-                                        Image(systemName: "chevron.right")
-                                            .foregroundStyle(appTheme == "skeuomorphic" ? Color(red: 0.45, green: 0.35, blue: 0.25) : .white.opacity(0.5))
+                                        .foregroundStyle(.black)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 16)
+                                        .background(BunnyTheme.gold, in: RoundedRectangle(cornerRadius: 18))
+                                        .shadow(color: .black.opacity(0.2), radius: 6, x: 0, y: 3)
                                     }
-                                    .padding(.horizontal, 18)
-                                    .padding(.vertical, 14)
-                                    .background(
-                                        appTheme == "skeuomorphic" ? AnyShapeStyle(Color(red: 0.90, green: 0.86, blue: 0.76).opacity(0.85)) : AnyShapeStyle(Color.white.opacity(0.14)),
-                                        in: RoundedRectangle(cornerRadius: 18)
-                                    )
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 18)
-                                            .strokeBorder(BunnyTheme.gold.opacity(0.5), lineWidth: 1)
-                                    )
-                                    .shadow(color: .black.opacity(0.2), radius: 6, x: 0, y: 3)
+
+                                    Button {
+                                        showFileImporter = true
+                                    } label: {
+                                        VStack(spacing: 8) {
+                                            Image(systemName: "folder.fill")
+                                                .font(.title)
+                                            Text("Open File")
+                                                .font(.subheadline.bold())
+                                        }
+                                        .foregroundStyle(.white)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 16)
+                                        .background(
+                                            Color.white.opacity(0.18),
+                                            in: RoundedRectangle(cornerRadius: 18)
+                                        )
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 18)
+                                                .strokeBorder(.white.opacity(0.3), lineWidth: 1)
+                                        )
+                                        .shadow(color: .black.opacity(0.2), radius: 6, x: 0, y: 3)
+                                    }
                                 }
                             }
                         }
@@ -373,13 +420,21 @@ struct iOSHomeView: View {
                                     .padding(.horizontal, 18)
                                     .padding(.vertical, 12)
                                     .background(
-                                        appTheme == "skeuomorphic" ? AnyShapeStyle(Color(red: 0.22, green: 0.14, blue: 0.08).opacity(0.85)) : AnyShapeStyle(Color.white.opacity(0.15)),
+                                        appTheme == "skeuomorphic"
+                                            ? AnyShapeStyle(
+                                                LinearGradient(
+                                                    colors: [Color(red: 0.32, green: 0.22, blue: 0.16), Color(red: 0.18, green: 0.10, blue: 0.06)],
+                                                    startPoint: .top, endPoint: .bottom
+                                                )
+                                            )
+                                            : AnyShapeStyle(Color.white.opacity(0.15)),
                                         in: Capsule()
                                     )
                                     .overlay(
                                         Capsule()
-                                            .strokeBorder(appTheme == "skeuomorphic" ? Color(red: 0.85, green: 0.72, blue: 0.45).opacity(0.4) : .clear, lineWidth: 1)
+                                            .strokeBorder(appTheme == "skeuomorphic" ? Color.black.opacity(0.7) : .clear, lineWidth: 1)
                                     )
+                                    .shadow(color: Color.black.opacity(appTheme == "skeuomorphic" ? 0.35 : 0), radius: 2, x: 0, y: 1)
                             }
 
                             Button {
@@ -391,13 +446,21 @@ struct iOSHomeView: View {
                                     .padding(.horizontal, 18)
                                     .padding(.vertical, 12)
                                     .background(
-                                        appTheme == "skeuomorphic" ? AnyShapeStyle(Color(red: 0.22, green: 0.14, blue: 0.08).opacity(0.85)) : AnyShapeStyle(Color.white.opacity(0.15)),
+                                        appTheme == "skeuomorphic"
+                                            ? AnyShapeStyle(
+                                                LinearGradient(
+                                                    colors: [Color(red: 0.32, green: 0.22, blue: 0.16), Color(red: 0.18, green: 0.10, blue: 0.06)],
+                                                    startPoint: .top, endPoint: .bottom
+                                                )
+                                            )
+                                            : AnyShapeStyle(Color.white.opacity(0.15)),
                                         in: Capsule()
                                     )
                                     .overlay(
                                         Capsule()
-                                            .strokeBorder(appTheme == "skeuomorphic" ? Color(red: 0.85, green: 0.72, blue: 0.45).opacity(0.4) : .clear, lineWidth: 1)
+                                            .strokeBorder(appTheme == "skeuomorphic" ? Color.black.opacity(0.7) : .clear, lineWidth: 1)
                                     )
+                                    .shadow(color: Color.black.opacity(appTheme == "skeuomorphic" ? 0.35 : 0), radius: 2, x: 0, y: 1)
                             }
                         }
                         .padding(.top, 12)
@@ -407,6 +470,7 @@ struct iOSHomeView: View {
                 }
             }
             .onAppear {
+                updatePlatformAppIcon(for: appTheme)
                 let args = ProcessInfo.processInfo.arguments
                 if args.contains("-screenshotEditor") {
                     let sampleDoc = NoteDocument()
@@ -464,32 +528,52 @@ struct iOSHomeView: View {
                     .navigationBarBackButtonHidden(true)
             }
             .sheet(isPresented: $showSettings) {
-                NavigationStack {
-                    SettingsView(onQuickNote: {
-                        showSettings = false
-                        let doc = NoteDocument()
-                        let timestamp = Date.now.formatted(date: .abbreviated, time: .shortened)
-                        doc.content = TextSnapshot(text: "--- Quick Note (\(timestamp)) ---\n\n")
-                        activeWrapper = NoteDocumentWrapper(document: doc)
-                    })
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Done") { showSettings = false }
-                                .foregroundStyle(BunnyTheme.gold)
+                if appTheme == "skeuomorphic" {
+                    SettingsView(
+                        onDismiss: { showSettings = false },
+                        onQuickNote: {
+                            showSettings = false
+                            let doc = NoteDocument()
+                            let timestamp = Date.now.formatted(date: .abbreviated, time: .shortened)
+                            doc.content = TextSnapshot(text: "--- Quick Note (\(timestamp)) ---\n\n")
+                            activeWrapper = NoteDocumentWrapper(document: doc)
+                        }
+                    )
+                } else {
+                    NavigationStack {
+                        SettingsView(onQuickNote: {
+                            showSettings = false
+                            let doc = NoteDocument()
+                            let timestamp = Date.now.formatted(date: .abbreviated, time: .shortened)
+                            doc.content = TextSnapshot(text: "--- Quick Note (\(timestamp)) ---\n\n")
+                            activeWrapper = NoteDocumentWrapper(document: doc)
+                        })
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("Done") { showSettings = false }
+                                    .foregroundStyle(BunnyTheme.gold)
+                            }
                         }
                     }
                 }
             }
             .sheet(isPresented: $showAbout) {
-                NavigationStack {
-                    AboutView()
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("Done") { showAbout = false }
-                                    .foregroundStyle(BunnyTheme.gold)
+                if appTheme == "skeuomorphic" {
+                    AboutView(theme: appTheme, onDismiss: { showAbout = false })
+                } else {
+                    NavigationStack {
+                        AboutView(theme: appTheme)
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button("Done") { showAbout = false }
+                                        .foregroundStyle(BunnyTheme.gold)
+                                }
                             }
-                        }
+                    }
                 }
+            }
+            .onChange(of: appTheme) { _, newTheme in
+                updatePlatformAppIcon(for: newTheme)
             }
         }
     }

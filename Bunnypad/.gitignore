@@ -1,9 +1,4 @@
-# Xcode
-#
-# gitignore template for Xcode
-#
-
-# OS X / macOS
+# macOS
 .DS_Store
 .AppleDouble
 .LSOverride
@@ -11,6 +6,10 @@
 
 # Xcode User Data & Derived Data
 DerivedData/
+[dD]erived[dD]ata/
+**/DerivedData/
+**/derivedData/
+**/[dD]erived[dD]ata/**
 build/
 .build/
 *.xcuserdata
@@ -21,11 +20,30 @@ xcuserdata/
 *.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
 
 # Swift PM
-.build/
 .swiftpm/
+
+# Qodana & Python
+qodana.yaml
+.venv
+__pycache__/
+*.pyc
+*.pyo
+*.bak
 
 # App Store Connect / Local Artifacts
 *.app
 *.ipa
 *.dSYM.zip
 *.dSYM
+
+# Screenshots & App Store Media
+[sS]creenshots/
+**/[sS]creenshots/**
+AppStore/
+**/AppStore/**
+*Screenshot*
+*screenshot*
+
+# Readme Files
+*[rR][eE][aA][dD][mM][eE]*
+

@@ -341,7 +341,11 @@ struct NativeTextEditor: UIViewRepresentable {
         textView.smartQuotesType = .no
         textView.smartDashesType = .no
         textView.smartInsertDeleteType = .no
-        textView.textContainerInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        if theme == "skeuomorphic" {
+            textView.textContainerInset = UIEdgeInsets(top: 12, left: 54, bottom: 24, right: 20)
+        } else {
+            textView.textContainerInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        }
         textView.text = document.content.text
         textView.delegate = context.coordinator
 
@@ -370,6 +374,12 @@ struct NativeTextEditor: UIViewRepresentable {
             if textView.font?.pointSize != CGFloat(fontSize) || textView.font?.fontName.contains("Noteworthy") == true {
                 textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
             }
+        }
+
+        if theme == "skeuomorphic" {
+            textView.textContainerInset = UIEdgeInsets(top: 12, left: 54, bottom: 24, right: 20)
+        } else {
+            textView.textContainerInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         }
 
         if textView.text != document.content.text {

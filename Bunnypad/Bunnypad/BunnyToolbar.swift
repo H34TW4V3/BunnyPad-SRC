@@ -199,7 +199,17 @@ struct BunnyToolbar: View {
 
     var body: some View {
         #if os(iOS)
-        floatingPillBody
+        if theme == "skeuomorphic" {
+            IOS6LeatherToolbarView(
+                session: session,
+                showSettings: $showSettings,
+                showAbout: $showAbout,
+                onBack: onBack,
+                onSave: onSave
+            )
+        } else {
+            floatingPillBody
+        }
         #else
         macOSBarBody
         #endif
@@ -207,43 +217,58 @@ struct BunnyToolbar: View {
 
     #if os(iOS)
     private var floatingPillBody: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                if let onBack {
-                    tool("Back", icon: "chevron.left") { onBack() }
-                    separator
-                }
+        HStack(spacing: 0) {
+            if let onBack {
+                tool("Back", icon: "chevron.left") { onBack() }
+                    .padding(.leading, 12)
+                    .padding(.trailing, 6)
 
-                tool("Save", icon: "square.and.arrow.down.fill") { onSave?() }
-                tool("Print", icon: "printer.fill") { session.printDocument() }
                 separator
-
-                tool("Cut", icon: "scissors") { session.textView?.cut(nil) }
-                tool("Copy", icon: "doc.on.doc.fill") { session.textView?.copy(nil) }
-                tool("Paste", icon: "clipboard.fill") { session.textView?.paste(nil) }
-                separator
-
-                tool("Undo", icon: "arrow.uturn.backward") { undoManager?.undo() }
-                    .disabled(undoManager?.canUndo != true)
-                tool("Redo", icon: "arrow.uturn.forward") { undoManager?.redo() }
-                    .disabled(undoManager?.canRedo != true)
-                separator
-
-                tool("Find", icon: "magnifyingglass") { session.find(replacing: false) }
-                tool("Replace", icon: "arrow.left.arrow.right") { session.find(replacing: true) }
-                separator
-
-                tool("Go to Line", icon: "arrow.up.forward.app") { session.showGoToLine = true }
-                tool("Insert Date", icon: "calendar.badge.plus") { session.insertDate() }
-                separator
-
-                tool("Settings", icon: "gearshape.fill") { showSettings = true }
-                tool("About", icon: "info.circle.fill") { showAbout = true }
+                    .padding(.trailing, 6)
             }
-            .buttonStyle(BunnyToolButtonStyle())
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    tool("Save", icon: "square.and.arrow.down.fill") { onSave?() }
+                    tool("Print", icon: "printer.fill") { session.printDocument() }
+
+                    separator
+
+                    tool("Cut", icon: "scissors") { session.textView?.cut(nil) }
+                    tool("Copy", icon: "doc.on.doc.fill") { session.textView?.copy(nil) }
+                    tool("Paste", icon: "clipboard.fill") { session.textView?.paste(nil) }
+
+                    separator
+
+                    tool("Undo", icon: "arrow.uturn.backward") { undoManager?.undo() }
+                        .disabled(undoManager?.canUndo != true)
+                    tool("Redo", icon: "arrow.uturn.forward") { undoManager?.redo() }
+                        .disabled(undoManager?.canRedo != true)
+
+                    separator
+
+                    tool("Find", icon: "magnifyingglass") { session.find(replacing: false) }
+                    tool("Replace", icon: "arrow.left.arrow.right") { session.find(replacing: true) }
+
+                    separator
+
+                    tool("Go to Line", icon: "arrow.up.forward.app") { session.showGoToLine = true }
+                    tool("Insert Date", icon: "calendar.badge.plus") { session.insertDate() }
+
+                    separator
+
+                    tool("Settings", icon: "gearshape.fill") { showSettings = true }
+                    tool("About", icon: "info.circle.fill") { showAbout = true }
+                }
+                .padding(.leading, onBack == nil ? 12 : 0)
+                .padding(.trailing, 12)
+                .padding(.vertical, 8)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(BunnyToolButtonStyle())
+        .frame(height: 48)
         .background(
             Capsule()
                 .fill(BunnyTheme.barGradient(for: theme))
