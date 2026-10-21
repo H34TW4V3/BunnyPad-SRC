@@ -16,11 +16,11 @@
       "kind": "folder",
       "path": "Bunnypad",
       "target-membership": [
-        "Bunnypad",
+        "BunnyPad",
       ],
       "membership-exceptions": [
         {
-          "target": "Bunnypad",
+          "target": "BunnyPad",
           "exclusions": [
             "Info.plist",
           ],
@@ -51,16 +51,16 @@
       "kind": "group",
       "name": "Products",
       "children": [
-        { "path": "<PRODUCTS>/Bunnypad.app", "id": "2FF045413065E2A3007FF5FF", "type": "wrapper.application", "index": false },
-        { "path": "<PRODUCTS>/BunnyPadControlsExtension.appex", "id": "2F93BD023089375E0018DF2B", "type": "wrapper.app-extension", "index": false, "target-membership": [ { "build-phase": "Bunnypad/copy/Embed Foundation Extensions", "header-preservation": "remove-on-copy" } ] },
+        { "path": "<PRODUCTS>/BunnyPad.app", "id": "2FF045413065E2A3007FF5FF", "type": "wrapper.application", "index": false },
+        { "path": "<PRODUCTS>/BunnyPadControlsExtension.appex", "id": "2F93BD023089375E0018DF2B", "type": "wrapper.app-extension", "index": false, "target-membership": [ { "build-phase": "BunnyPad/copy/Embed Foundation Extensions", "header-preservation": "remove-on-copy" } ] },
       ],
     },
   ],
   "targets": [
     {
-      "name": "Bunnypad",
+      "name": "BunnyPad",
       "id": "2FF045403065E2A3007FF5FF",
-      "product": "Products/Bunnypad.app",
+      "product": "Products/BunnyPad.app",
       "product-type": "application",
       "dependencies": [
         "BunnyPadControlsExtension",
@@ -103,7 +103,8 @@
         "ENABLE_USER_SELECTED_FILES": "readwrite",
         "GENERATE_INFOPLIST_FILE": "YES",
         "INFOPLIST_FILE": "Bunnypad/Info.plist",
-        "INFOPLIST_KEY_CFBundleDisplayName": "Bunnypad",
+        "INFOPLIST_KEY_CFBundleDisplayName": "BunnyPad",
+        "INFOPLIST_KEY_CFBundleName": "BunnyPad",
         "INFOPLIST_KEY_CFBundleIconFile": "bunnypad",
         "INFOPLIST_KEY_CFBundleIconName": "bunnypad",
         "INFOPLIST_KEY_LSApplicationCategoryType": "public.app-category.productivity",
