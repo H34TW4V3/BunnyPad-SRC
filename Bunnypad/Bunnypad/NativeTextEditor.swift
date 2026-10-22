@@ -16,6 +16,7 @@ final class EditorSession {
     var line = 1
     var column = 1
     var showGoToLine = false
+    var onPencilDoubleTap: (() -> Void)? = nil
 
     func find(replacing: Bool = false) {
         #if os(macOS)
@@ -341,6 +342,14 @@ struct NativeTextEditor: UIViewRepresentable {
         textView.smartQuotesType = .no
         textView.smartDashesType = .no
         textView.smartInsertDeleteType = .no
+
+        let scribble = UIScribbleInteraction(delegate: context.coordinator)
+        textView.addInteraction(scribble)
+
+        let pencil = UIPencilInteraction()
+        pencil.delegate = context.coordinator
+        textView.addInteraction(pencil)
+
         if theme == "skeuomorphic" {
             textView.textContainerInset = UIEdgeInsets(top: 12, left: 54, bottom: 24, right: 20)
         } else {
@@ -402,11 +411,34 @@ struct NativeTextEditor: UIViewRepresentable {
         }
     }
 
-    final class Coordinator: NSObject, UITextViewDelegate {
+    final class Coordinator: NSObject, UITextViewDelegate, UIScribbleInteractionDelegate, UIPencilInteractionDelegate {
         var parent: NativeTextEditor
         private var lineStarts: [Int] = []
 
         init(_ parent: NativeTextEditor) { self.parent = parent }
+
+        // MARK: - UIScribbleInteractionDelegate
+        func scribbleInteractionWillBeginWriting(_ interaction: UIScribbleInteraction) {}
+
+        func scribbleInteractionDidFinishWriting(_ interaction: UIScribbleInteraction) {
+            if let tv = parent.session.textView {
+                textViewDidChange(tv)
+            }
+        }
+
+        // MARK: - UIPencilInteractionDelegate
+        func pencilInteractionDidTap(_ interaction: UIPencilInteraction) {
+            Task { @MainActor in
+                self.parent.session.onPencilDoubleTap?()
+            }
+        }
+
+        @available(iOS 17.5, *)
+        func pencilInteraction(_ interaction: UIPencilInteraction, didReceiveTap tap: UIPencilInteraction.Tap) {
+            Task { @MainActor in
+                self.parent.session.onPencilDoubleTap?()
+            }
+        }
 
         func resetLineStarts() {
             lineStarts.removeAll()

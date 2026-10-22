@@ -187,14 +187,24 @@ struct BunnyToolbar: View {
     var onBack: (() -> Void)? = nil
     var onSave: (() -> Void)? = nil
     var theme: String = "gradient"
+    @Binding var isHandwritingMode: Bool
 
-    init(session: EditorSession, showSettings: Binding<Bool> = .constant(false), showAbout: Binding<Bool> = .constant(false), onBack: (() -> Void)? = nil, onSave: (() -> Void)? = nil, theme: String = "gradient") {
+    init(
+        session: EditorSession,
+        showSettings: Binding<Bool> = .constant(false),
+        showAbout: Binding<Bool> = .constant(false),
+        onBack: (() -> Void)? = nil,
+        onSave: (() -> Void)? = nil,
+        theme: String = "gradient",
+        isHandwritingMode: Binding<Bool> = .constant(false)
+    ) {
         self.session = session
         self._showSettings = showSettings
         self._showAbout = showAbout
         self.onBack = onBack
         self.onSave = onSave
         self.theme = theme
+        self._isHandwritingMode = isHandwritingMode
     }
 
     var body: some View {
@@ -205,7 +215,8 @@ struct BunnyToolbar: View {
                 showSettings: $showSettings,
                 showAbout: $showAbout,
                 onBack: onBack,
-                onSave: onSave
+                onSave: onSave,
+                isHandwritingMode: $isHandwritingMode
             )
         } else {
             floatingPillBody
@@ -256,6 +267,16 @@ struct BunnyToolbar: View {
                     tool("Insert Date", icon: "calendar.badge.plus") { session.insertDate() }
 
                     separator
+
+                    #if os(iOS)
+                    tool("Handwriting", icon: isHandwritingMode ? "pencil.and.scribble" : "pencil.tip.crop.circle") {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            isHandwritingMode.toggle()
+                        }
+                    }
+
+                    separator
+                    #endif
 
                     tool("Settings", icon: "gearshape.fill") { showSettings = true }
                     tool("About", icon: "info.circle.fill") { showAbout = true }

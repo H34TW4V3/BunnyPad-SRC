@@ -148,6 +148,23 @@ struct IOS6LeatherToolbarView: View {
     @Binding var showAbout: Bool
     var onBack: (() -> Void)? = nil
     var onSave: (() -> Void)? = nil
+    @Binding var isHandwritingMode: Bool
+
+    init(
+        session: EditorSession,
+        showSettings: Binding<Bool>,
+        showAbout: Binding<Bool>,
+        onBack: (() -> Void)? = nil,
+        onSave: (() -> Void)? = nil,
+        isHandwritingMode: Binding<Bool> = .constant(false)
+    ) {
+        self.session = session
+        self._showSettings = showSettings
+        self._showAbout = showAbout
+        self.onBack = onBack
+        self.onSave = onSave
+        self._isHandwritingMode = isHandwritingMode
+    }
 
     private var leatherGradient: LinearGradient {
         LinearGradient(
@@ -218,6 +235,15 @@ struct IOS6LeatherToolbarView: View {
                             ios6Tool("Replace", icon: "arrow.left.arrow.right") { session.find(replacing: true) }
                             ios6Tool("Go to Line", icon: "arrow.up.forward.app") { session.showGoToLine = true }
                             ios6Tool("Insert Date", icon: "calendar.badge.plus") { session.insertDate() }
+
+                            ios6Separator
+
+                            // Apple Pencil / Handwriting mode
+                            ios6Tool("Handwriting", icon: isHandwritingMode ? "pencil.and.scribble" : "pencil.tip") {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                    isHandwritingMode.toggle()
+                                }
+                            }
 
                             ios6Separator
 

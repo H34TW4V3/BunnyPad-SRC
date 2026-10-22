@@ -1,5 +1,7 @@
 #if os(macOS)
 import AppKit
+#elseif os(iOS)
+import PencilKit
 #endif
 import SwiftUI
 import UniformTypeIdentifiers
@@ -12,6 +14,10 @@ struct ContentView: View {
     @AppStorage("fontSize") private var fontSize = 16.0
     @AppStorage("showStatusBar") private var showStatusBar = true
     @AppStorage("appTheme") private var appTheme = "gradient"
+    #if os(iOS)
+    @AppStorage("pencilOnlyDrawing") private var pencilOnlyDrawing = false
+    @AppStorage("autoTranscribeHandwriting") private var autoTranscribeHandwriting = false
+    #endif
     #if os(macOS)
     @AppStorage("windowOpacity") private var windowOpacity = 0.95
     #endif
@@ -21,6 +27,10 @@ struct ContentView: View {
     @State private var showExportSheet = false
     @State private var showSaveError = false
     @State private var saveError = ""
+    @State private var isHandwritingMode = false
+    #if os(iOS)
+    @State private var handwritingDrawing = PKDrawing()
+    #endif
 
     var body: some View {
         ZStack {
@@ -44,12 +54,31 @@ struct ContentView: View {
                     showAbout: $showAbout,
                     onBack: onBack,
                     onSave: { showExportSheet = true },
-                    theme: appTheme
+                    theme: appTheme,
+                    isHandwritingMode: $isHandwritingMode
                 )
+                #if os(iOS)
+                if isHandwritingMode {
+                    HandwritingPadView(
+                        isPresented: $isHandwritingMode,
+                        drawing: $handwritingDrawing,
+                        document: document,
+                        session: session,
+                        theme: appTheme
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity)
+                } else {
+                    NativeTextEditor(document: document, session: session, wrapsLines: wordWrap, fontSize: fontSize, theme: appTheme)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                #else
                 NativeTextEditor(document: document, session: session, wrapsLines: wordWrap, fontSize: fontSize, theme: appTheme)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                #endif
+
                 if showStatusBar {
-                    EditorStatusBar(session: session, content: document.content, theme: appTheme)
+                    EditorStatusBar(session: session, content: document.content, theme: appTheme, isHandwritingMode: isHandwritingMode)
                 }
             }
         }
@@ -178,6 +207,13 @@ struct ContentView: View {
             #endif
         }
         .onAppear {
+            #if os(iOS)
+            session.onPencilDoubleTap = {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    isHandwritingMode.toggle()
+                }
+            }
+            #endif
             let args = ProcessInfo.processInfo.arguments
             if args.contains("-screenshotEditor") {
                 if document.content.text.isEmpty {
@@ -261,46 +297,91 @@ private struct EditorStatusBar: View {
     let session: EditorSession
     let content: TextSnapshot
     var theme: String = "gradient"
+    var isHandwritingMode: Bool = false
 
     var body: some View {
-        #if os(iOS)
-        if theme == "skeuomorphic" {
-            HStack {
-                Text("Ln \(session.line), Col \(session.column)")
-                Spacer()
-                Text("\(content.text.count) characters")
-                Divider().frame(height: 12)
-                Text(content.encoding == .utf8 ? "UTF-8" : content.encoding == .isoLatin1 ? "Latin-1" : "UTF-16")
-                Text(content.lineEnding == "\r\n" ? "CRLF" : content.lineEnding == "\r" ? "CR" : "LF")
+        if isHandwritingMode {
+            handwritingStatusBar
+        } else {
+            #if os(iOS)
+            if theme == "skeuomorphic" {
+                ios6StatusBar
+            } else {
+                defaultStatusBar
             }
-            .font(.caption.bold())
-            .foregroundStyle(Color(red: 0.95, green: 0.90, blue: 0.80))
-            .shadow(color: Color.black.opacity(0.85), radius: 0, x: 0, y: -1)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 6)
-            .background(
-                LinearGradient(
+            #else
+            defaultStatusBar
+            #endif
+        }
+    }
+
+    private var handwritingStatusBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "applepencil")
+                .font(.caption.bold())
+                .foregroundStyle(BunnyTheme.gold)
+            Text("Apple Pencil & Handwriting Mode")
+                .font(.caption.bold())
+            Spacer()
+            Text("Tap Transcribe to convert into note")
+                .font(.caption)
+                .opacity(0.85)
+        }
+        .font(.caption)
+        .foregroundStyle(theme == "skeuomorphic" ? Color(red: 0.95, green: 0.90, blue: 0.80) : .white)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .background(
+            theme == "skeuomorphic"
+                ? LinearGradient(
                     colors: [
                         Color(red: 0.32, green: 0.18, blue: 0.09),
                         Color(red: 0.18, green: 0.10, blue: 0.05)
                     ],
                     startPoint: .top, endPoint: .bottom
                 )
-            )
-            .overlay(alignment: .top) {
-                VStack(spacing: 0) {
-                    Rectangle()
-                        .fill(Color.white.opacity(0.2))
-                        .frame(height: 1)
-                }
-            }
-        } else {
-            defaultStatusBar
+                : BunnyTheme.barGradient(for: theme)
+        )
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(theme == "skeuomorphic" ? Color(red: 0.85, green: 0.72, blue: 0.45).opacity(0.4) : .white.opacity(0.25))
+                .frame(height: 1)
         }
-        #else
-        defaultStatusBar
-        #endif
     }
+
+    #if os(iOS)
+    private var ios6StatusBar: some View {
+        HStack {
+            Text("Ln \(session.line), Col \(session.column)")
+            Spacer()
+            Text("\(content.text.count) characters")
+            Divider().frame(height: 12)
+            Text(content.encoding == .utf8 ? "UTF-8" : content.encoding == .isoLatin1 ? "Latin-1" : "UTF-16")
+            Text(content.lineEnding == "\r\n" ? "CRLF" : content.lineEnding == "\r" ? "CR" : "LF")
+        }
+        .font(.caption.bold())
+        .foregroundStyle(Color(red: 0.95, green: 0.90, blue: 0.80))
+        .shadow(color: Color.black.opacity(0.85), radius: 0, x: 0, y: -1)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .background(
+            LinearGradient(
+                colors: [
+                    Color(red: 0.32, green: 0.18, blue: 0.09),
+                    Color(red: 0.18, green: 0.10, blue: 0.05)
+                ],
+                startPoint: .top, endPoint: .bottom
+            )
+        )
+        .overlay(alignment: .top) {
+            VStack(spacing: 0) {
+                Rectangle()
+                    .fill(Color.white.opacity(0.2))
+                    .frame(height: 1)
+            }
+        }
+    }
+    #endif
 
     private var defaultStatusBar: some View {
         HStack {
@@ -370,6 +451,10 @@ struct SettingsView: View {
     @AppStorage("fontSize") private var fontSize = 16.0
     @AppStorage("showStatusBar") private var showStatusBar = true
     @AppStorage("appTheme") private var appTheme = "gradient"
+    #if os(iOS)
+    @AppStorage("pencilOnlyDrawing") private var pencilOnlyDrawing = false
+    @AppStorage("autoTranscribeHandwriting") private var autoTranscribeHandwriting = false
+    #endif
     #if os(macOS)
     @AppStorage("windowOpacity") private var windowOpacity = 0.95
     @AppStorage("showMenuBarItem") private var showMenuBarItem = true
@@ -484,6 +569,34 @@ struct SettingsView: View {
                                 .padding(.vertical, 4)
                             }
                         }
+
+                        #if os(iOS)
+                        // Apple Pencil & Handwriting Preferences
+                        VStack(alignment: .leading, spacing: 6) {
+                            IOS6SectionHeader(title: "Apple Pencil & Handwriting")
+                            IOS6GroupedCard {
+                                HStack {
+                                    Text("Pencil Only (Palm Rejection)")
+                                        .font(.system(size: 16, weight: .regular))
+                                        .foregroundStyle(Color(red: 0.12, green: 0.12, blue: 0.14))
+                                    Spacer()
+                                    IOS6Switch(isOn: $pencilOnlyDrawing)
+                                }
+                                .frame(height: 34)
+
+                                Divider()
+
+                                HStack {
+                                    Text("Auto-Transcribe on Exit")
+                                        .font(.system(size: 16, weight: .regular))
+                                        .foregroundStyle(Color(red: 0.12, green: 0.12, blue: 0.14))
+                                    Spacer()
+                                    IOS6Switch(isOn: $autoTranscribeHandwriting)
+                                }
+                                .frame(height: 34)
+                            }
+                        }
+                        #endif
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 16)
@@ -583,6 +696,41 @@ struct SettingsView: View {
                             .fill(appTheme == "skeuomorphic" ? AnyShapeStyle(Color(red: 0.22, green: 0.14, blue: 0.08).opacity(0.85)) : AnyShapeStyle(Color.black.opacity(0.35)))
                             .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(appTheme == "skeuomorphic" ? Color(red: 0.85, green: 0.72, blue: 0.45).opacity(0.5) : .white.opacity(0.25), lineWidth: 1))
                     )
+
+                    #if os(iOS)
+                    // Apple Pencil & Handwriting Card
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Image(systemName: "applepencil")
+                                .foregroundStyle(BunnyTheme.gold)
+                            Text("APPLE PENCIL & HANDWRITING")
+                                .font(.caption.bold())
+                                .foregroundStyle(BunnyTheme.gold)
+                        }
+
+                        Toggle("Apple Pencil Only (Palm Rejection)", isOn: $pencilOnlyDrawing)
+                            .tint(BunnyTheme.gold)
+
+                        Text("Ignores finger touches when drawing on the handwriting canvas so you can comfortably rest your palm.")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.75))
+
+                        Divider().background(Color.white.opacity(0.15))
+
+                        Toggle("Auto-Transcribe on Exit", isOn: $autoTranscribeHandwriting)
+                            .tint(BunnyTheme.gold)
+
+                        Text("Automatically transcribes handwritten notes into typed text when switching back to Text Mode.")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.75))
+                    }
+                    .padding(16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18)
+                            .fill(appTheme == "skeuomorphic" ? AnyShapeStyle(Color(red: 0.22, green: 0.14, blue: 0.08).opacity(0.85)) : AnyShapeStyle(Color.black.opacity(0.35)))
+                            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(appTheme == "skeuomorphic" ? Color(red: 0.85, green: 0.72, blue: 0.45).opacity(0.5) : .white.opacity(0.25), lineWidth: 1))
+                    )
+                    #endif
 
                     // Theme Options Card
                     VStack(alignment: .leading, spacing: 12) {
