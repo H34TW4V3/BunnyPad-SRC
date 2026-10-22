@@ -26,7 +26,10 @@ struct TextSnapshot: Sendable {
             payload = hasBOM ? data.dropFirst(3) : data
             encoding = String(data: payload, encoding: .utf8) == nil ? .isoLatin1 : .utf8
         }
-        guard let text = String(data: payload, encoding: encoding), !text.contains("\0") else {
+        guard let text = String(data: payload, encoding: encoding), !text.unicodeScalars.contains(where: { scalar in
+                  // Keep tabs, line breaks, form feeds and ANSI escape sequences.
+                  scalar.value < 32 && ![9, 10, 12, 13, 27].contains(scalar.value)
+              }) else {
             throw TextFileError.unsupported
         }
         let ending = text.contains("\r\n") ? "\r\n" : (text.contains("\r") ? "\r" : "\n")
@@ -66,10 +69,11 @@ enum TextFileError: LocalizedError {
 final class NoteDocument: ReferenceFileDocument, ObservableObject {
     typealias Snapshot = TextSnapshot
 
-    static let readableContentTypes: [UTType] = [.plainText]
-    static let writableContentTypes: [UTType] = [.plainText]
+    static let readableContentTypes = TextFileTypes.readableContentTypes
+    static var writableContentTypes: [UTType] { TextFileTypes.writableContentTypes }
 
     @Published var content = TextSnapshot(text: "")
+    var suggestedFilename = "BunnyPad Note.txt"
 
     init() {}
 
@@ -78,6 +82,7 @@ final class NoteDocument: ReferenceFileDocument, ObservableObject {
             throw TextFileError.unsupported
         }
         self.content = try TextSnapshot.decode(data)
+        suggestedFilename = configuration.file.preferredFilename ?? configuration.file.filename ?? suggestedFilename
     }
 
     func snapshot(contentType: UTType) throws -> TextSnapshot {

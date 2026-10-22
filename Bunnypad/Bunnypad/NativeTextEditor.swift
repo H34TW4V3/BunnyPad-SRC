@@ -1,28 +1,56 @@
+#if os(macOS)
 import AppKit
+#elseif os(iOS)
+import UIKit
+#endif
 import SwiftUI
 
 @Observable
 final class EditorSession {
+    #if os(macOS)
     weak var textView: NSTextView?
+    #elseif os(iOS)
+    weak var textView: UITextView?
+    #endif
+
     var line = 1
     var column = 1
     var showGoToLine = false
+    var onPencilDoubleTap: (() -> Void)? = nil
 
     func find(replacing: Bool = false) {
+        #if os(macOS)
         guard let textView else { return }
         textView.window?.makeFirstResponder(textView)
         let item = NSMenuItem()
         item.tag = replacing ? NSTextFinder.Action.showReplaceInterface.rawValue : NSTextFinder.Action.showFindInterface.rawValue
         textView.performFindPanelAction(item)
+        #elseif os(iOS)
+        guard let textView else { return }
+        textView.isFindInteractionEnabled = true
+        textView.findInteraction?.presentFindNavigator(showingReplace: replacing)
+        #endif
     }
 
     func insertDate() {
+        let dateString = Date.now.formatted(date: .abbreviated, time: .shortened)
+        #if os(macOS)
         guard let textView else { return }
-        textView.insertText(Date.now.formatted(date: .abbreviated, time: .shortened), replacementRange: textView.selectedRange())
+        textView.insertText(dateString, replacementRange: textView.selectedRange())
+        #elseif os(iOS)
+        guard let textView else { return }
+        if let range = textView.selectedTextRange {
+            textView.replace(range, withText: dateString)
+        } else {
+            textView.insertText(dateString)
+        }
+        #endif
     }
 
     func go(to line: Int) -> Bool {
-        guard let textView, line > 0 else { return false }
+        guard line > 0 else { return false }
+        #if os(macOS)
+        guard let textView else { return false }
         let lines = textView.string.components(separatedBy: "\n")
         guard line <= lines.count else { return false }
         let position = lines.prefix(line - 1).reduce(0) { $0 + $1.utf16.count + 1 }
@@ -30,11 +58,26 @@ final class EditorSession {
         textView.setSelectedRange(NSRange(location: position, length: 0))
         textView.scrollRangeToVisible(textView.selectedRange())
         return true
+        #elseif os(iOS)
+        guard let textView else { return false }
+        let lines = textView.text.components(separatedBy: "\n")
+        guard line <= lines.count else { return false }
+        let position = lines.prefix(line - 1).reduce(0) { $0 + $1.utf16.count + 1 }
+        textView.becomeFirstResponder()
+        let nsRange = NSRange(location: position, length: 0)
+        if let start = textView.position(from: textView.beginningOfDocument, offset: nsRange.location),
+           let textRange = textView.textRange(from: start, to: start) {
+            textView.selectedTextRange = textRange
+            textView.scrollRangeToVisible(nsRange)
+            return true
+        }
+        return false
+        #endif
     }
 
     func printDocument() {
+        #if os(macOS)
         guard let textView else { return }
-        // Use a separate, wrapped view so printing never changes the editor layout.
         guard let info = NSPrintInfo.shared.copy() as? NSPrintInfo else { return }
         info.horizontalPagination = .fit
         info.verticalPagination = .automatic
@@ -63,6 +106,17 @@ final class EditorSession {
         } else {
             operation.run()
         }
+        #elseif os(iOS)
+        guard let textView else { return }
+        let printInfo = UIPrintInfo.printInfo()
+        printInfo.outputType = .general
+        printInfo.jobName = "BunnyPad Document"
+        let controller = UIPrintInteractionController.shared
+        controller.printInfo = printInfo
+        let formatter = textView.viewPrintFormatter()
+        controller.printFormatter = formatter
+        controller.present(animated: true, completionHandler: nil)
+        #endif
     }
 }
 
@@ -77,11 +131,13 @@ extension FocusedValues {
     }
 }
 
+#if os(macOS)
 struct NativeTextEditor: NSViewRepresentable {
     let document: NoteDocument
     let session: EditorSession
     let wrapsLines: Bool
     let fontSize: Double
+    var theme: String = "gradient"
     @Environment(\.undoManager) private var undoManager
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -95,10 +151,8 @@ struct NativeTextEditor: NSViewRepresentable {
         let text = BunnyTextView(frame: .zero)
         text.convertEncoding = { context.coordinator.useUTF8() }
         text.drawsBackground = false
-        text.textColor = .white
-        text.insertionPointColor = .white
+        text.textColor = BunnyTheme.nsTextColor(for: theme)
         text.isRichText = false
-        // Model undo uses the document's environment manager, which also drives autosave.
         text.allowsUndo = false
         text.usesFindBar = true
         text.isIncrementalSearchingEnabled = true
@@ -109,7 +163,15 @@ struct NativeTextEditor: NSViewRepresentable {
         text.minSize = .zero
         text.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         text.textContainerInset = NSSize(width: 20, height: 20)
-        text.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+
+        if theme == "skeuomorphic" {
+            text.font = NSFont(name: "Noteworthy-Bold", size: fontSize) ?? NSFont(name: "MarkerFelt-Thin", size: fontSize) ?? .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            text.insertionPointColor = NSColor(red: 0.15, green: 0.12, blue: 0.10, alpha: 1)
+        } else {
+            text.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            text.insertionPointColor = BunnyTheme.goldNSColor
+        }
+
         text.setAccessibilityLabel("Document text")
         text.string = document.content.text
         text.delegate = context.coordinator
@@ -122,14 +184,26 @@ struct NativeTextEditor: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self
         guard let text = scroll.documentView as? NSTextView else { return }
+        text.textColor = BunnyTheme.nsTextColor(for: theme)
+
+        if theme == "skeuomorphic" {
+            text.insertionPointColor = NSColor(red: 0.15, green: 0.12, blue: 0.10, alpha: 1)
+            let desired = NSFont(name: "Noteworthy-Bold", size: fontSize) ?? NSFont(name: "MarkerFelt-Thin", size: fontSize) ?? .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            if text.font != desired {
+                text.font = desired
+            }
+        } else {
+            text.insertionPointColor = BunnyTheme.goldNSColor
+            if text.font?.pointSize != CGFloat(fontSize) || text.font?.fontName.contains("Noteworthy") == true {
+                text.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            }
+        }
+
         if text.string != document.content.text {
             let selection = text.selectedRange()
             text.string = document.content.text
             context.coordinator.resetLineStarts()
             text.setSelectedRange(NSRange(location: min(selection.location, text.string.utf16.count), length: 0))
-        }
-        if text.font?.pointSize != CGFloat(fontSize) {
-            text.font = NSFontManager.shared.convert(text.font ?? .systemFont(ofSize: fontSize), toSize: fontSize)
         }
         configure(text, in: scroll)
     }
@@ -207,13 +281,13 @@ struct NativeTextEditor: NSViewRepresentable {
             return result
         }
 
-        private func updatePosition(_ text: NSTextView) {
-            let nsString = text.string as NSString
+        private func updatePosition(_ textView: NSTextView) {
+            let nsString = textView.string as NSString
             let length = nsString.length
-            let offset = min(text.selectedRange().location, length)
+            let offset = min(textView.selectedRange().location, length)
 
             if lineStarts.isEmpty {
-                updateLineStarts(for: text.string)
+                updateLineStarts(for: textView.string)
             }
 
             let lineIdx = lineIndex(for: offset)
@@ -236,3 +310,215 @@ struct NativeTextEditor: NSViewRepresentable {
         }
     }
 }
+#elseif os(iOS)
+struct NativeTextEditor: UIViewRepresentable {
+    let document: NoteDocument
+    let session: EditorSession
+    let wrapsLines: Bool
+    let fontSize: Double
+    var theme: String = "gradient"
+    @Environment(\.undoManager) private var undoManager
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> BunnyTextView {
+        let textView = BunnyTextView()
+        textView.convertEncoding = { context.coordinator.useUTF8() }
+        textView.isOpaque = false
+        textView.backgroundColor = .clear
+        textView.textColor = BunnyTheme.uiTextColor(for: theme)
+
+        if theme == "skeuomorphic" {
+            textView.font = UIFont(name: "Noteworthy-Bold", size: fontSize) ?? UIFont(name: "MarkerFelt-Thin", size: fontSize) ?? .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            textView.tintColor = UIColor(red: 0.15, green: 0.12, blue: 0.10, alpha: 1)
+        } else {
+            textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            textView.tintColor = BunnyTheme.goldUIColor
+        }
+
+        textView.isFindInteractionEnabled = true
+        textView.autocorrectionType = .no
+        textView.autocapitalizationType = .none
+        textView.smartQuotesType = .no
+        textView.smartDashesType = .no
+        textView.smartInsertDeleteType = .no
+
+        let scribble = UIScribbleInteraction(delegate: context.coordinator)
+        textView.addInteraction(scribble)
+
+        let pencil = UIPencilInteraction()
+        pencil.delegate = context.coordinator
+        textView.addInteraction(pencil)
+
+        if theme == "skeuomorphic" {
+            textView.textContainerInset = UIEdgeInsets(top: 12, left: 54, bottom: 24, right: 20)
+        } else {
+            textView.textContainerInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        }
+        textView.text = document.content.text
+        textView.delegate = context.coordinator
+
+        textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        textView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        textView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+
+        session.textView = textView
+        configure(textView)
+        return textView
+    }
+
+    func updateUIView(_ textView: BunnyTextView, context: Context) {
+        context.coordinator.parent = self
+        textView.textColor = BunnyTheme.uiTextColor(for: theme)
+
+        if theme == "skeuomorphic" {
+            textView.tintColor = UIColor(red: 0.15, green: 0.12, blue: 0.10, alpha: 1)
+            let desired = UIFont(name: "Noteworthy-Bold", size: fontSize) ?? UIFont(name: "MarkerFelt-Thin", size: fontSize) ?? .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            if textView.font != desired {
+                textView.font = desired
+            }
+        } else {
+            textView.tintColor = BunnyTheme.goldUIColor
+            if textView.font?.pointSize != CGFloat(fontSize) || textView.font?.fontName.contains("Noteworthy") == true {
+                textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            }
+        }
+
+        if theme == "skeuomorphic" {
+            textView.textContainerInset = UIEdgeInsets(top: 12, left: 54, bottom: 24, right: 20)
+        } else {
+            textView.textContainerInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        }
+
+        if textView.text != document.content.text {
+            let selectedRange = textView.selectedRange
+            textView.text = document.content.text
+            context.coordinator.resetLineStarts()
+            textView.selectedRange = NSRange(location: min(selectedRange.location, textView.text.count), length: 0)
+        }
+        configure(textView)
+    }
+
+    private func configure(_ textView: BunnyTextView) {
+        if wrapsLines {
+            textView.textContainer.lineBreakMode = .byWordWrapping
+            textView.textContainer.widthTracksTextView = true
+        } else {
+            textView.textContainer.lineBreakMode = .byClipping
+            textView.textContainer.widthTracksTextView = false
+            textView.textContainer.size = CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        }
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate, UIScribbleInteractionDelegate, UIPencilInteractionDelegate {
+        var parent: NativeTextEditor
+        private var lineStarts: [Int] = []
+
+        init(_ parent: NativeTextEditor) { self.parent = parent }
+
+        // MARK: - UIScribbleInteractionDelegate
+        func scribbleInteractionWillBeginWriting(_ interaction: UIScribbleInteraction) {}
+
+        func scribbleInteractionDidFinishWriting(_ interaction: UIScribbleInteraction) {
+            if let tv = parent.session.textView {
+                textViewDidChange(tv)
+            }
+        }
+
+        // MARK: - UIPencilInteractionDelegate
+        func pencilInteractionDidTap(_ interaction: UIPencilInteraction) {
+            Task { @MainActor in
+                self.parent.session.onPencilDoubleTap?()
+            }
+        }
+
+        @available(iOS 17.5, *)
+        func pencilInteraction(_ interaction: UIPencilInteraction, didReceiveTap tap: UIPencilInteraction.Tap) {
+            Task { @MainActor in
+                self.parent.session.onPencilDoubleTap?()
+            }
+        }
+
+        func resetLineStarts() {
+            lineStarts.removeAll()
+        }
+
+        func useUTF8() {
+            var snapshot = parent.document.content
+            snapshot.encoding = .utf8
+            snapshot.hasBOM = false
+            parent.document.replace(with: snapshot, undoManager: parent.undoManager)
+        }
+
+        func textViewDidChange(_ textView: UITextView) {
+            updateLineStarts(for: textView.text)
+            var snapshot = parent.document.content
+            snapshot.text = textView.text
+            parent.document.replace(with: snapshot, undoManager: parent.undoManager)
+            updatePosition(textView)
+        }
+
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            updatePosition(textView)
+        }
+
+        private func updateLineStarts(for string: String) {
+            var starts = [0]
+            var idx = 0
+            for unit in string.utf16 {
+                idx += 1
+                if unit == 0x0A {
+                    starts.append(idx)
+                }
+            }
+            self.lineStarts = starts
+        }
+
+        private func lineIndex(for offset: Int) -> Int {
+            guard !lineStarts.isEmpty else { return 0 }
+            var low = 0
+            var high = lineStarts.count - 1
+            var result = 0
+            while low <= high {
+                let mid = (low + high) / 2
+                if lineStarts[mid] <= offset {
+                    result = mid
+                    low = mid + 1
+                } else {
+                    high = mid - 1
+                }
+            }
+            return result
+        }
+
+        private func updatePosition(_ textView: UITextView) {
+            let nsString = textView.text as NSString
+            let length = nsString.length
+            let offset = min(textView.selectedRange.location, length)
+
+            if lineStarts.isEmpty {
+                updateLineStarts(for: textView.text)
+            }
+
+            let lineIdx = lineIndex(for: offset)
+            let lineStart = lineStarts[lineIdx]
+            let line = lineIdx + 1
+
+            let linePrefixLength = min(max(0, offset - lineStart), max(0, length - lineStart))
+            let column: Int
+            if linePrefixLength > 0 {
+                let linePrefix = nsString.substring(with: NSRange(location: lineStart, length: linePrefixLength))
+                column = linePrefix.count + 1
+            } else {
+                column = 1
+            }
+
+            Task { @MainActor [session = parent.session] in
+                session.line = line
+                session.column = column
+            }
+        }
+    }
+}
+#endif
